@@ -52,7 +52,7 @@
         <input name="model" id="model" required value="{{ old('model', $setting->model ?? config('gama.ai.model')) }}">
     </label>
     <label>API key
-        <input name="api_key" type="password" autocomplete="off" placeholder="{{ $setting?->api_key ? 'Saved. Leave empty to keep it.' : 'Paste the key' }}">
+        <input name="api_key" type="password" autocomplete="new-password" placeholder="{{ $setting?->api_key ? 'Saved. Leave empty to keep it.' : 'Paste the key' }}">
     </label>
     <div><button>Save</button></div>
 </form>
