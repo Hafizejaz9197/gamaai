@@ -32,11 +32,13 @@ Test Page (ID 11): one container, one row, two 1/2 columns, a title and an image
     3. Publish. The live page showed the new title and the draft was deleted.
     4. Roll back to snapshot 20. The live page was restored (same title text and same length), and a new snapshot 22 was recorded.
 
+- With plugin 0.2.0 and the registry captured (139 elements, Avada Builder 3.15.6, after opening the page once in Avada Builder Live), the Test Page model dropped from about 11.7 KB to 695 bytes of JSON (about 94% smaller), with `round_trips` still true. What is left is only what differs from Avada's defaults: column `type`, `last` and `border_position`, the image's `aspect_ratio`, `lightbox` and `image_id`, the title text and the image URL.
+
 ## Open
 
 - Whether a draft preview renders identically to the published page (not yet compared visually).
 - Pages with page options set (`_fusion` present), nested rows, global elements and other plugins' shortcodes.
-- Where `fusion_builder_map()` keeps the registered map at runtime. The defining file (`inc/helpers.php`) is over the 64 KB read limit of the inspection tool. Plugin 0.2.0 does not depend on it: it observes the filters Avada runs on each element's params (`fusion_builder_element_params`, `fusion_builder_responsive_params`, `fusion_builder_states_params`, registered in `inc/class-fusion-builder-element-helper.php`). Whether those filters run on every request or only when the builder is open is still to be confirmed on the site.
+- Where `fusion_builder_map()` keeps the registered map at runtime. The defining file (`inc/helpers.php`) is over the 64 KB read limit of the inspection tool. Plugin 0.2.0 does not depend on it: it observes the filters Avada runs on each element's params (`fusion_builder_element_params`, `fusion_builder_responsive_params`, `fusion_builder_states_params`, registered in `inc/class-fusion-builder-element-helper.php`). Opening a page in Avada Builder Live fills the registry (confirmed). Whether the filters also run on normal front-end requests is still unconfirmed.
 
 ## Design consequences
 
