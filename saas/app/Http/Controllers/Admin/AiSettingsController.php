@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AiSetting;
 use App\Services\Ai\EditPlanner;
 use App\Services\Ai\EditPlannerException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -32,9 +34,50 @@ class AiSettingsController extends Controller
 
     public const TEST_INSTRUCTION = 'Change the main heading to "Hello from Gama AI".';
 
+    /** Model names that are not chat models (speech, embeddings, moderation). */
+    public const NON_CHAT = '/whisper|tts|embed|guard|moderation|audio|image|veo|imagen|aqa/i';
+
     public function edit(): View
     {
-        return view('admin.ai', ['setting' => AiSetting::current(), 'envKeySet' => (string) config('services.anthropic.key') !== '']);
+        return $this->page();
+    }
+
+    /**
+     * Ask the saved provider which models this key can use, free ones first.
+     */
+    public function models(): View
+    {
+        $setting = AiSetting::current();
+        $anthropic = $setting === null || $setting->provider === AiSetting::ANTHROPIC;
+        $key = (string) ($setting?->api_key ?: ($anthropic ? config('services.anthropic.key') : ''));
+        if ($key === '') {
+            return $this->page(['modelsError' => 'Save an API key first.']);
+        }
+
+        try {
+            $response = $anthropic
+                ? Http::withHeaders(['x-api-key' => $key, 'anthropic-version' => '2023-06-01'])->timeout(30)->get('https://api.anthropic.com/v1/models', ['limit' => 100])
+                : Http::withToken($key)->acceptJson()->timeout(30)->get(rtrim((string) $setting->base_url, '/').'/models');
+        } catch (ConnectionException) {
+            return $this->page(['modelsError' => 'The provider could not be reached.']);
+        }
+        if ($response->failed()) {
+            return $this->page(['modelsError' => 'The provider returned an error ('.$response->status().').']);
+        }
+
+        $models = [];
+        foreach ((array) $response->json('data', []) as $item) {
+            $id = is_array($item) && is_string($item['id'] ?? null) ? preg_replace('#^models/#', '', $item['id']) : null;
+            if ($id === null || preg_match(self::NON_CHAT, $id)) {
+                continue;
+            }
+            $free = str_ends_with($id, ':free')
+                || (isset($item['pricing']['prompt'], $item['pricing']['completion']) && (float) $item['pricing']['prompt'] === 0.0 && (float) $item['pricing']['completion'] === 0.0);
+            $models[$id] = ['id' => $id, 'free' => $free];
+        }
+        $models = collect($models)->sortBy(fn ($m) => [$m['free'] ? 0 : 1, $m['id']])->take(300)->values()->all();
+
+        return $this->page(['models' => $models, 'modelsError' => $models ? null : 'The provider listed no chat models for this key.']);
     }
 
     public function update(Request $request): RedirectResponse
@@ -80,6 +123,14 @@ class AiSettingsController extends Controller
             $test = ['ok' => false, 'message' => $e->getMessage(), 'plan' => $e->plan];
         }
 
-        return view('admin.ai', ['setting' => AiSetting::current(), 'envKeySet' => (string) config('services.anthropic.key') !== '', 'test' => $test]);
+        return $this->page(['test' => $test]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function page(array $extra = []): View
+    {
+        return view('admin.ai', $extra + ['setting' => AiSetting::current(), 'envKeySet' => (string) config('services.anthropic.key') !== '']);
     }
 }

@@ -11,6 +11,7 @@ use App\Services\Ai\EditPlannerException;
 use App\Services\Ai\OpenAiCompatibleEditPlanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\Support\FakeEditPlanner;
 use Tests\TestCase;
 
@@ -102,5 +103,35 @@ class AiSettingsTest extends TestCase
         $this->put('/admin/ai', $this->gemini())->assertRedirect('/admin/login');
         $this->actingAs(User::factory()->create())->put('/admin/ai', $this->gemini())->assertForbidden();
         $this->assertNull(AiSetting::current());
+    }
+
+    public function test_lists_the_models_the_key_can_use_free_first(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin)->put('/admin/ai', $this->gemini(['base_url' => 'https://openrouter.ai/api/v1']));
+        Http::fake(['https://openrouter.ai/api/v1/models' => Http::response(['data' => [
+            ['id' => 'paid/big-model', 'pricing' => ['prompt' => '0.000001', 'completion' => '0.000002']],
+            ['id' => 'some/model:free', 'pricing' => ['prompt' => '0', 'completion' => '0']],
+            ['id' => 'openai/whisper-1'],
+            ['id' => 'models/gemini-x'],
+        ]])]);
+
+        $html = $this->actingAs($admin)->post('/admin/ai/models')->assertOk()->getContent();
+
+        $this->assertStringContainsString('some/model:free (free)', $html);
+        $this->assertStringContainsString('data-model="gemini-x"', $html);
+        $this->assertStringNotContainsString('whisper', $html);
+        $this->assertLessThan(strpos($html, 'paid/big-model'), strpos($html, 'some/model:free'));
+        Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer AIzaSecretKey123'));
+    }
+
+    public function test_model_list_errors(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin)->post('/admin/ai/models')->assertOk()->assertSee('Save an API key first.');
+
+        $this->actingAs($admin)->put('/admin/ai', $this->gemini());
+        Http::fake(['*' => Http::response([], 401)]);
+        $this->actingAs($admin)->post('/admin/ai/models')->assertOk()->assertSee('returned an error (401)');
     }
 }

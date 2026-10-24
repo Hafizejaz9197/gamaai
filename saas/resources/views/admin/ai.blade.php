@@ -57,6 +57,23 @@
     <div><button>Save</button></div>
 </form>
 
+<h2>Available models</h2>
+<form class="inline" method="post" action="{{ route('admin.ai.models') }}">
+    @csrf
+    <button>Show the models this key can use</button>
+    <span class="muted">Asks the saved provider for its current list. Click one to put it in the Model field, then Save.</span>
+</form>
+@isset($modelsError)
+    @if ($modelsError)<div class="errors" style="margin-top: 12px;">{{ $modelsError }}</div>@endif
+@endisset
+@if (! empty($models))
+    <div class="panel" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-height: 320px; overflow: auto;">
+        @foreach ($models as $m)
+            <button type="button" class="link pick-model" data-model="{{ $m['id'] }}" style="font-size: 13px;">{{ $m['id'] }}{{ $m['free'] ? ' (free)' : '' }}</button>
+        @endforeach
+    </div>
+@endif
+
 <h2>Test</h2>
 <form class="inline" method="post" action="{{ route('admin.ai.test') }}">
     @csrf
@@ -78,6 +95,14 @@
             sync();
         });
         provider.addEventListener('change', sync);
+        document.querySelectorAll('.pick-model').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var model = document.getElementById('model');
+                model.value = b.dataset.model;
+                model.scrollIntoView({ block: 'center' });
+                model.focus();
+            });
+        });
         sync();
     }());
 </script>

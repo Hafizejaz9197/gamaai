@@ -23,6 +23,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('ai', [AiSettingsController::class, 'edit'])->name('ai');
         Route::put('ai', [AiSettingsController::class, 'update'])->name('ai.update');
         Route::post('ai/test', [AiSettingsController::class, 'test'])->middleware('throttle:5,1')->name('ai.test');
+        Route::post('ai/models', [AiSettingsController::class, 'models'])->middleware('throttle:10,1')->name('ai.models');
         Route::post('accounts', [AccountController::class, 'store'])->name('accounts.store');
         Route::get('accounts/{account}', [AccountController::class, 'show'])->name('accounts.show');
         Route::put('accounts/{account}', [AccountController::class, 'update'])->name('accounts.update');
