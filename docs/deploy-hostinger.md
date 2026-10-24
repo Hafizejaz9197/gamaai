@@ -167,7 +167,9 @@ merged PR. It runs the tests, then over SSH copies the SaaS to `~/gama-saas`
 (keeping `.env` and `storage`) and runs the migrations and caches. It also
 updates the existing plugin folder
 `public_html/sabahat/wp-content/plugins/gama-ai`, and nothing else in
-WordPress. It can also be started by hand under Actions → Deploy.
+WordPress. It can also be started by hand under Actions → Deploy → Run
+workflow, on any branch, to put work on the test server before its PR is
+merged. GitHub only offers that button once the workflow is on `main`.
 
 One-time setup, over SSH:
 

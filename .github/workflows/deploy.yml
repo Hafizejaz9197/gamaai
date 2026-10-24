@@ -3,6 +3,8 @@ name: Deploy
 # Every push to main (a merged PR) is tested, then copied to the Hostinger
 # server over SSH: the SaaS to ~/gama-saas, and, when DEPLOY_PLUGIN below is
 # "true", the plugin to the test site's existing Gama AI plugin folder.
+# It can also be started by hand (Actions → Deploy → Run workflow) on any
+# branch, so work can go to the test server before its PR is merged.
 # Needs the repository secret DEPLOY_SSH_KEY (see docs/deploy-hostinger.md).
 
 on:
