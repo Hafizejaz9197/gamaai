@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -15,6 +15,10 @@ AI and no editing interface yet. All routes require a logged-in user with
 the matching WordPress capability.
 
 == Changelog ==
+
+= 0.2.0 =
+* Collects Avada's element settings and defaults as Avada builds them (GET /gama-ai/v1/registry).
+* The page model leaves out settings that are at Avada's default.
 
 = 0.1.0 =
 * Avada detection and version check.
