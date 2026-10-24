@@ -14,7 +14,7 @@ use Anthropic\Core\Exceptions\RateLimitException;
  */
 class AnthropicEditPlanner implements EditPlanner
 {
-    private const SYSTEM_PROMPT = <<<'PROMPT'
+    public const SYSTEM_PROMPT = <<<'PROMPT'
 You edit pages built with the Avada page builder for WordPress. You never write Avada shortcodes. You answer with edit operations that the Gama AI plugin applies to a draft of the page, which the site owner previews before publishing.
 
 The page is given as a list of elements. Each element has an `id` such as "0.1.2" (its position in the layout), a `type` (the Avada shortcode name), the settings that differ from Avada's defaults in `attrs`, its text in `text`, and its `children`. Containers hold rows, rows hold columns, and columns hold content elements such as titles, text blocks, buttons and images.

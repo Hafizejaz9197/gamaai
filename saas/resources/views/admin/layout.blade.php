@@ -44,6 +44,7 @@
     <strong>Gama AI admin</strong>
     <a href="{{ route('admin.dashboard') }}">Dashboard</a>
     <a href="{{ route('admin.ledger') }}">Usage ledger</a>
+    <a href="{{ route('admin.ai') }}">AI provider</a>
     <form method="post" action="{{ route('admin.logout') }}">@csrf <button class="link">Log out</button></form>
 </header>
 @endauth
