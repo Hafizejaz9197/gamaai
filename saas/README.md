@@ -63,4 +63,4 @@ php artisan test
 
 Production can use MariaDB/MySQL or PostgreSQL. CI runs the tests on SQLite,
 PostgreSQL and MariaDB. For cPanel hosting, `bin/build-deploy-zip.sh` builds a
-zip with production dependencies included; see `docs/deploy-cpanel.md`.
+zip with production dependencies included; see `docs/deploy-hostinger.md` (the test site's host) or `docs/deploy-cpanel.md`.

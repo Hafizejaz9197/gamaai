@@ -1,5 +1,8 @@
 # Deploying the SaaS on cPanel
 
+The test site's hosting is Hostinger (hPanel). For it, follow
+`deploy-hostinger.md` instead.
+
 The Gama AI service (`saas/`) runs on the same cPanel hosting as the test
 site. That hosting has MariaDB 11.8, and WordPress there runs on PHP 8.5.
 CI tests the service on MariaDB, PostgreSQL and SQLite.
