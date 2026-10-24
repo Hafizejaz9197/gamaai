@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 0.5.1
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,9 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.5.1 =
+* The command bar explains a timeout (502/504) instead of showing "Something went wrong".
 
 = 0.5.0 =
 * Command bar on pages for users who can edit them: describe a change, see what the AI did and what it cost, then preview, publish, discard or undo. It also shows on the draft preview.

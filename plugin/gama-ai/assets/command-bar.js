@@ -35,7 +35,11 @@
 				return {};
 			}).then(function (data) {
 				if (!response.ok) {
-					var error = new Error(data.message || 'Something went wrong (' + response.status + ').');
+					var message = data.message;
+					if (!message && (response.status === 502 || response.status === 504)) {
+						message = 'The AI took too long to answer, so the server stopped waiting. It may still finish: reload the preview in a minute. If this keeps happening, choose a faster AI model.';
+					}
+					var error = new Error(message || 'Something went wrong (' + response.status + ').');
 					error.data = data.data || {};
 					throw error;
 				}
