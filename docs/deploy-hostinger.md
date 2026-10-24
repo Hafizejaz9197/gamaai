@@ -160,7 +160,29 @@ request type, the full usage ledger, and lets you create accounts, change
 budgets, add sites (the token is shown once) and give a site a new token.
 Run the same command again to change the password.
 
-## Updating later
+## Automatic deploys
+
+`.github/workflows/deploy.yml` runs on every push to `main`, which is every
+merged PR. It runs the tests, then over SSH copies the SaaS to `~/gama-saas`
+(keeping `.env` and `storage`) and runs the migrations and caches. It also
+updates the existing plugin folder
+`public_html/sabahat/wp-content/plugins/gama-ai`, and nothing else in
+WordPress. It can also be started by hand under Actions → Deploy.
+
+One-time setup, over SSH:
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/gama_deploy -N "" -C gama-deploy
+cat ~/.ssh/gama_deploy.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/gama_deploy
+```
+
+Copy the private key the last command prints (from `-----BEGIN` to
+`END-----`) into a repository secret named `DEPLOY_SSH_KEY` (GitHub →
+Settings → Secrets and variables → Actions). Never paste it in chat.
+
+## Updating by hand
 
 Upload the new zip to the home folder, then run the commands below. The zip
 has no `.env`, so the existing one is kept.
