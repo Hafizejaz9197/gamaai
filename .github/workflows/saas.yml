@@ -1,0 +1,48 @@
+name: SaaS
+
+on:
+  push:
+    branches: [main]
+    paths: ['saas/**', '.github/workflows/saas.yml']
+  pull_request:
+    paths: ['saas/**', '.github/workflows/saas.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: gama_test
+          POSTGRES_USER: gama
+          POSTGRES_PASSWORD: gama
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U gama" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: saas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, pdo_pgsql
+          tools: composer
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - run: cp .env.example .env && php artisan key:generate
+      - run: vendor/bin/pint --test
+      - name: Tests
+        run: |
+          if [ "${{ matrix.database }}" = "pgsql" ]; then
+            export DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=gama_test DB_USERNAME=gama DB_PASSWORD=gama
+          fi
+          php artisan test
