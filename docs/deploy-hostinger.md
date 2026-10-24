@@ -102,6 +102,7 @@ DB_USERNAME=<full database user>
 DB_PASSWORD=<database password>
 
 SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true
 CACHE_STORE=database
 QUEUE_CONNECTION=sync
 
@@ -142,6 +143,22 @@ Upload plugin 0.4.0 in WordPress. Then go to **Settings → Gama AI**:
 - Site token: the `gsk_...` token
 
 Click **Save and test connection**. It should say **Connected**.
+
+## 9. Admin dashboard
+
+Create your admin login over SSH. It asks for the password twice and
+doesn't show it while you type:
+
+```sh
+cd ~/gama-saas
+php artisan gama:admin-create you@example.com
+```
+
+Then open `https://gama-api.avadawebsites.com/admin` and log in. The
+dashboard shows each month's tokens and cost by account, site, model and
+request type, the full usage ledger, and lets you create accounts, change
+budgets, add sites (the token is shown once) and give a site a new token.
+Run the same command again to change the password.
 
 ## Updating later
 
