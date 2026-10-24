@@ -34,7 +34,7 @@
             <option value="">Choose a provider to fill in the fields…</option>
             <option data-provider="openai_compatible" data-url="https://generativelanguage.googleapis.com/v1beta/openai" data-model="gemini-2.5-flash">Google Gemini (free tier, key from aistudio.google.com)</option>
             <option data-provider="openai_compatible" data-url="https://api.groq.com/openai/v1" data-model="llama-3.3-70b-versatile">Groq (free tier, key from console.groq.com)</option>
-            <option data-provider="openai_compatible" data-url="https://openrouter.ai/api/v1" data-model="meta-llama/llama-3.3-70b-instruct:free">OpenRouter free models (key from openrouter.ai)</option>
+            <option data-provider="openai_compatible" data-url="https://openrouter.ai/api/v1" data-model="">OpenRouter (key from openrouter.ai; pick a model ending in :free at openrouter.ai/models)</option>
             <option data-provider="anthropic" data-url="" data-model="claude-opus-5-5">Anthropic Claude Opus 5.5 (paid, key from console.anthropic.com)</option>
         </select>
     </label>
