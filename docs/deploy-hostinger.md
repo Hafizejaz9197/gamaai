@@ -39,13 +39,19 @@ the full names down for `.env`.
 
 ## 4. Upload and unpack
 
-Upload `gama-saas-<version>.zip` to your **home folder**, not
-`public_html`, with hPanel → **Files → File Manager**. Then over SSH:
+Upload `gama-saas-<version>.zip` with hPanel → **Files → File Manager**.
+File Manager opens in `~/domains/avadawebsites.com` (it shows
+`public_html` and `DO_NOT_UPLOAD_HERE`), not in your SSH home folder.
+Upload the zip there, next to `public_html`, not inside it. Then over SSH:
 
 ```sh
+mv ~/domains/avadawebsites.com/gama-saas-*.zip ~/
 cd ~
 unzip -q gama-saas-*.zip        # creates ~/gama-saas
 ```
+
+If File Manager already unpacked it, move the folder instead:
+`mv ~/domains/avadawebsites.com/gama-saas ~/gama-saas`.
 
 ## 5. Make only `public` reachable from the web
 
