@@ -32,7 +32,7 @@ class AiSettingsTest extends TestCase
         return $overrides + [
             'provider' => AiSetting::OPENAI_COMPATIBLE,
             'base_url' => 'https://generativelanguage.googleapis.com/v1beta/openai',
-            'model' => 'gemini-2.5-flash',
+            'model' => 'gemini-3.8-flash',
             'api_key' => 'AIzaSecretKey123',
         ];
     }
@@ -53,7 +53,7 @@ class AiSettingsTest extends TestCase
         $setting = AiSetting::current();
         $this->assertSame('AIzaSecretKey123', $setting->api_key);
         $this->assertStringNotContainsString('AIzaSecretKey123', (string) DB::table('ai_settings')->value('api_key'));
-        $this->actingAs($admin)->get('/admin/ai')->assertOk()->assertSee('gemini-2.5-flash')->assertDontSee('AIzaSecretKey123');
+        $this->actingAs($admin)->get('/admin/ai')->assertOk()->assertSee('gemini-3.8-flash')->assertDontSee('AIzaSecretKey123');
     }
 
     public function test_an_empty_key_keeps_the_saved_one_for_the_same_provider(): void
