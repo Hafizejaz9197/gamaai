@@ -10,6 +10,7 @@ namespace GamaAI;
 use GamaAI\Admin\SettingsPage;
 use GamaAI\Drafts\DraftManager;
 use GamaAI\Drafts\WpPostStore;
+use GamaAI\Frontend\CommandBar;
 use GamaAI\Rest\Controller;
 use GamaAI\Saas\SaasClient;
 
@@ -33,6 +34,7 @@ class Plugin {
 		);
 		add_action( 'admin_notices', [ $this, 'compatibility_notice' ] );
 		( new SettingsPage() )->register();
+		( new CommandBar( new DraftManager( new WpPostStore() ) ) )->register();
 	}
 
 	/**

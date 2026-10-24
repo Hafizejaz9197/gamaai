@@ -143,6 +143,20 @@ class DraftManager {
 	}
 
 	/**
+	 * Throw a draft away. The live page is not touched.
+	 *
+	 * @param int $draft_id Draft ID.
+	 * @return int The live page ID the draft belonged to.
+	 * @throws DraftException When the post is not a Gama AI draft.
+	 */
+	public function discard( $draft_id ) {
+		$this->require_draft( $draft_id );
+		$source_id = $this->source_of( $draft_id );
+		$this->store->delete( $draft_id );
+		return $source_id;
+	}
+
+	/**
 	 * Copy an approved draft onto the live page.
 	 *
 	 * @param int $draft_id Draft ID.

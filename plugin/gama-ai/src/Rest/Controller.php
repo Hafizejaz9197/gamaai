@@ -187,6 +187,16 @@ class Controller {
 		);
 		register_rest_route(
 			self::NAMESPACE_V1,
+			'/drafts/(?P<id>\d+)/discard',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'discard' ],
+				'permission_callback' => [ $this, 'can_edit_linked' ],
+				'args'                => $id,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
 			'/snapshots/(?P<id>\d+)/rollback',
 			[
 				'methods'             => 'POST',
@@ -214,6 +224,17 @@ class Controller {
 	 */
 	public function can_edit_page( $request ) {
 		return current_user_can( 'edit_post', (int) $request['id'] );
+	}
+
+	/**
+	 * Permission: the user can edit the page a draft belongs to.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return bool
+	 */
+	public function can_edit_linked( $request ) {
+		$source_id = $this->drafts->source_of( (int) $request['id'] );
+		return $source_id > 0 && current_user_can( 'edit_post', $source_id );
 	}
 
 	/**
@@ -515,7 +536,29 @@ class Controller {
 		}
 		return $this->run(
 			function () use ( $request ) {
-				return [ 'snapshot_id' => $this->drafts->publish( (int) $request['id'], get_current_user_id() ) ];
+				$source_id = $this->drafts->source_of( (int) $request['id'] );
+				return [
+					'snapshot_id' => $this->drafts->publish( (int) $request['id'], get_current_user_id() ),
+					'page_url'    => get_permalink( $source_id ),
+				];
+			}
+		);
+	}
+
+	/**
+	 * POST /drafts/{id}/discard.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function discard( $request ) {
+		return $this->run(
+			function () use ( $request ) {
+				$source_id = $this->drafts->discard( (int) $request['id'] );
+				return [
+					'page_id'  => $source_id,
+					'page_url' => get_permalink( $source_id ),
+				];
 			}
 		);
 	}
