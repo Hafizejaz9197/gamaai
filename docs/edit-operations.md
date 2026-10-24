@@ -9,7 +9,17 @@ only when the draft is published.
 ```
 GET  /wp-json/gama-ai/v1/pages/{id}/model     page model (the draft's, if a draft is open)
 POST /wp-json/gama-ai/v1/pages/{id}/edits     { "operations": [ ... ] }
+POST /wp-json/gama-ai/v1/pages/{id}/ai-edit   { "instruction": "Make the heading shorter" }
 ```
+
+`ai-edit` sends the page model, the settings of the element types the edit
+may use (types on the page plus title, text and button) and the request to
+the Gama AI service (`POST /api/v1/site/edit-requests`). The service reserves
+tokens against the account's budget, asks Claude for operations in the
+schema below, records the real usage, and returns `summary`, `operations`
+and `usage`. The plugin then applies the operations exactly as `.../edits`
+does. If an operation fails the plugin's checks, the route returns 422 with
+the AI's answer, because the call was already paid for.
 
 `POST .../edits` creates the draft when there is none and returns
 `draft_id`, `preview_url` and `sections` (the new model). On an invalid

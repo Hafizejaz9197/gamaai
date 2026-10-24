@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Gama AI
  * Description:       AI-assisted editing for Avada websites. Reads Avada pages, applies checked edits to drafts, and publishes or rolls them back.
- * Version:           0.3.0
+ * Version:           0.4.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Gama AI
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GAMA_AI_VERSION', '0.3.0' );
+define( 'GAMA_AI_VERSION', '0.4.0' );
 define( 'GAMA_AI_DIR', __DIR__ );
 
 spl_autoload_register(

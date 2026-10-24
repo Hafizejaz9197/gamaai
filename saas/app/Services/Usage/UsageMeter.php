@@ -62,20 +62,30 @@ class UsageMeter
      * Record what an AI call used. Usage above the reservation is still
      * recorded: the provider has already charged for it.
      */
-    public function settle(string $requestId, string $model, int $inputTokens, int $outputTokens, ?int $providerCostMicros = null): UsageEntry
-    {
-        if ($inputTokens < 0 || $outputTokens < 0) {
+    public function settle(
+        string $requestId,
+        string $model,
+        int $inputTokens,
+        int $outputTokens,
+        ?int $providerCostMicros = null,
+        int $cacheWriteTokens = 0,
+        int $cacheReadTokens = 0,
+    ): UsageEntry {
+        if (min($inputTokens, $outputTokens, $cacheWriteTokens, $cacheReadTokens) < 0) {
             throw new InvalidArgumentException('Token counts cannot be negative.');
         }
 
         return $this->close($requestId, [
             'kind' => UsageEntry::SETTLE,
             'model' => $model,
-            'tokens' => $inputTokens + $outputTokens,
+            'tokens' => $inputTokens + $outputTokens + $cacheWriteTokens + $cacheReadTokens,
             'input_tokens' => $inputTokens,
             'output_tokens' => $outputTokens,
-            'estimated_cost_micros' => $this->estimateCost($model, $inputTokens, $outputTokens),
+            'estimated_cost_micros' => $this->estimateCost($model, $inputTokens, $outputTokens, $cacheWriteTokens, $cacheReadTokens),
             'provider_cost_micros' => $providerCostMicros,
+            'meta' => ($cacheWriteTokens || $cacheReadTokens)
+                ? ['cache_write_tokens' => $cacheWriteTokens, 'cache_read_tokens' => $cacheReadTokens]
+                : null,
         ]);
     }
 
@@ -165,13 +175,19 @@ class UsageMeter
         });
     }
 
-    private function estimateCost(string $model, int $inputTokens, int $outputTokens): int
+    private function estimateCost(string $model, int $inputTokens, int $outputTokens, int $cacheWriteTokens, int $cacheReadTokens): int
     {
         $price = config('gama.pricing', [])[$model] ?? null; // Model ids can contain dots.
         if (! is_array($price)) {
             return 0;
         }
 
-        return intdiv($inputTokens * (int) ($price['input'] ?? 0) + $outputTokens * (int) ($price['output'] ?? 0), 1_000_000);
+        return intdiv(
+            $inputTokens * (int) ($price['input'] ?? 0)
+            + $outputTokens * (int) ($price['output'] ?? 0)
+            + $cacheWriteTokens * (int) ($price['cache_write'] ?? $price['input'] ?? 0)
+            + $cacheReadTokens * (int) ($price['cache_read'] ?? $price['input'] ?? 0),
+            1_000_000,
+        );
     }
 }

@@ -1,7 +1,7 @@
 # Gama AI SaaS
 
-Laravel backend for Gama AI. Phase 2: accounts, sites, plugin tokens and the
-usage ledger. No AI calls yet.
+Laravel backend for Gama AI: accounts, sites, plugin tokens, the usage
+ledger, and AI edit requests answered by Claude.
 
 ## What is here
 
@@ -12,7 +12,8 @@ usage ledger. No AI calls yet.
 | Append-only usage ledger | `app/Models/UsageEntry.php`, `database/migrations/*usage_entries*` |
 | Reserve, settle, release, adjust and the monthly summary | `app/Services/Usage/UsageMeter.php` |
 | Plugin API (`Authorization: Bearer gsk_...`) | `routes/api.php`, `app/Http/Controllers/Api/SiteController.php` |
-| Model prices for estimated cost | `config/gama.php` |
+| Claude edit planner (page model + request → edit operations) | `app/Services/Ai/AnthropicEditPlanner.php` |
+| Model, effort and prices | `config/gama.php` |
 
 ### How usage is metered
 
@@ -33,6 +34,19 @@ Rows are never updated or deleted. Corrections are `adjust` rows.
 | --- | --- |
 | `POST /api/v1/site/check-in` | The plugin reports `plugin_version`, `avada_builder_version` and `avada_verified`, and gets this month's usage back. |
 | `GET /api/v1/site/usage` | This month's usage: budget, used, held, available, estimated cost. |
+| `POST /api/v1/site/edit-requests` | `page_id`, `instruction`, `sections` (page model) and `elements` (element settings) in; `summary`, `operations` and `usage` out. 402 when the budget cannot cover the call, 502 when the AI call fails. 10 requests per minute per site. |
+
+### AI edits
+
+The planner sends Claude (`GAMA_AI_MODEL`, default `claude-opus-5-5`, effort
+`GAMA_AI_EFFORT`, default `medium`) a fixed system prompt, then the page model
+and element settings as one cached block, then the request. The answer is
+constrained to a JSON schema of the five edit operations. Server-side refusal
+fallback is on (`fallbacks: "default"`), so the ledger records the model that
+actually answered. The plugin checks every operation against Avada again
+before writing the draft.
+
+Set `ANTHROPIC_API_KEY` in the server environment. Never commit it.
 
 ## Local setup
 
