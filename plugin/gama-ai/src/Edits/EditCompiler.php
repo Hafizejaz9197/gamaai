@@ -1,0 +1,451 @@
+<?php
+/**
+ * Turns typed edit operations into Avada layout markup.
+ *
+ * @package GamaAI
+ */
+
+namespace GamaAI\Edits;
+
+use GamaAI\Avada\Node;
+use GamaAI\Avada\Registry;
+use GamaAI\Avada\Serializer;
+use GamaAI\Avada\ShortcodeParser;
+
+/**
+ * Applies a list of edit operations to a page's markup.
+ *
+ * The AI never writes shortcodes. It sends operations that point at
+ * elements by the path ids of the page model (PageModel), and each one is
+ * checked against the Avada registry before anything changes:
+ *
+ * - replace_text     { target, text }
+ * - set_attribute    { target, name, value }
+ * - insert_element   { parent, index?, type, attrs?, text? }   parent "" = page root
+ * - remove_element   { target }
+ * - move_element     { target, index }                          within the same parent
+ *
+ * Ids always refer to the page as the model showed it, so earlier
+ * operations in the same list do not shift them. Indexes for insert and
+ * move count the parent's elements at the time the operation runs. The
+ * operations are all-or-nothing: the first invalid one throws and no
+ * markup is returned.
+ */
+class EditCompiler {
+
+	const MAX_OPERATIONS   = 50;
+	const MAX_VALUE_LENGTH = 2000;
+	const MAX_TEXT_LENGTH  = 20000;
+
+	/** Structural elements and the parents they may be placed in. '' is the page root. */
+	const STRUCTURE = [
+		'fusion_builder_container'    => [ '' ],
+		'fusion_builder_row'          => [ 'fusion_builder_container' ],
+		'fusion_builder_column'       => [ 'fusion_builder_row' ],
+		'fusion_builder_row_inner'    => [ 'fusion_builder_column' ],
+		'fusion_builder_column_inner' => [ 'fusion_builder_row_inner' ],
+	];
+
+	/** Parents that hold content elements such as titles, text and images. */
+	const CONTENT_PARENTS = [ 'fusion_builder_column', 'fusion_builder_column_inner' ];
+
+	/** Setting types whose element_content may be replaced with text. */
+	const TEXT_TYPES = [ 'tinymce', 'textarea', 'textfield' ];
+
+	/** @var Registry */
+	private $registry;
+
+	/** @var callable(string):string */
+	private $sanitize_text;
+
+	/** @var callable(string,array):string */
+	private $sanitize_attr;
+
+	/** @var \SplObjectStorage Node => parent Node. */
+	private $parents;
+
+	/** @var \SplObjectStorage Removed nodes. */
+	private $removed;
+
+	/** @var Node */
+	private $root;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param Registry      $registry      Avada registry of the running builder version.
+	 * @param callable|null $sanitize_text Cleans element text (HTML allowed), e.g. wp_kses_post.
+	 * @param callable|null $sanitize_attr Cleans a setting value; receives the value and the registry param.
+	 */
+	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null ) {
+		$identity            = function ( $value ) {
+			return $value;
+		};
+		$this->registry      = $registry;
+		$this->sanitize_text = $sanitize_text ? $sanitize_text : $identity;
+		$this->sanitize_attr = $sanitize_attr ? $sanitize_attr : $identity;
+	}
+
+	/**
+	 * Apply operations to markup.
+	 *
+	 * @param string                           $content    Current markup.
+	 * @param array<int,array<string,mixed>> $operations Operations.
+	 * @return string New markup.
+	 * @throws EditException When an operation is invalid.
+	 */
+	public function apply( $content, array $operations ) {
+		if ( ! $operations ) {
+			throw new EditException( 'No operations given.' );
+		}
+		if ( count( $operations ) > self::MAX_OPERATIONS ) {
+			throw new EditException( 'Too many operations; the limit is ' . self::MAX_OPERATIONS . '.' );
+		}
+
+		$this->root    = ( new ShortcodeParser() )->parse( $content );
+		$this->parents = new \SplObjectStorage();
+		$this->removed = new \SplObjectStorage();
+		$ids           = [];
+		$this->index( $this->root, '', $ids );
+
+		foreach ( array_values( $operations ) as $i => $op ) {
+			try {
+				$this->run( is_array( $op ) ? $op : [], $ids );
+			} catch ( EditException $e ) {
+				throw new EditException( 'Operation ' . $i . ': ' . $e->getMessage(), $i );
+			}
+		}
+
+		$serializer = new Serializer();
+		$out        = $serializer->serialize( $this->root );
+		if ( $serializer->serialize( ( new ShortcodeParser() )->parse( $out ) ) !== $out ) {
+			throw new EditException( 'The edited layout would not read back unchanged.' );
+		}
+		return $out;
+	}
+
+	/**
+	 * Run one operation.
+	 *
+	 * @param array<string,mixed> $op  Operation.
+	 * @param array<string,Node>  $ids Path id => node, from the original page.
+	 * @return void
+	 * @throws EditException When the operation is invalid.
+	 */
+	private function run( array $op, array $ids ) {
+		$name = isset( $op['op'] ) ? $op['op'] : '';
+		switch ( $name ) {
+			case 'replace_text':
+				$this->replace_text( $this->target( $op, $ids ), $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) );
+				return;
+			case 'set_attribute':
+				$node  = $this->target( $op, $ids );
+				$key   = $this->string_field( $op, 'name', 100 );
+				$value = $this->string_field( $op, 'value', self::MAX_VALUE_LENGTH );
+				$node->set_attr( $key, $this->checked_attr( $node->name, $key, $value ) );
+				return;
+			case 'insert_element':
+				$this->insert( $op, $ids );
+				return;
+			case 'remove_element':
+				$this->remove( $this->target( $op, $ids ) );
+				return;
+			case 'move_element':
+				$node = $this->target( $op, $ids );
+				$this->place( $this->parents[ $node ], $node, $this->index_field( $op ) );
+				return;
+			default:
+				throw new EditException( 'Unknown operation "' . (string) $name . '".' );
+		}
+	}
+
+	/**
+	 * Replace an element's text.
+	 *
+	 * @param Node   $node Element.
+	 * @param string $text New text (HTML allowed).
+	 * @return void
+	 * @throws EditException When the element has no text or holds other elements.
+	 */
+	private function replace_text( Node $node, $text ) {
+		$this->require_text_param( $node->name );
+		if ( $node->shortcode_children() ) {
+			throw new EditException( $node->name . ' holds other elements; edit those instead.' );
+		}
+		$node->children = [ Node::text( $this->clean_text( $text ) ) ];
+		if ( null === $node->raw_close ) {
+			$node->raw_close = '[/' . $node->name . ']';
+			$node->dirty     = true; // Drops a self-closing slash from the opening tag.
+		}
+	}
+
+	/**
+	 * Insert a new element.
+	 *
+	 * @param array<string,mixed> $op  Operation.
+	 * @param array<string,Node>  $ids Path ids.
+	 * @return void
+	 * @throws EditException When the element or its place is not allowed.
+	 */
+	private function insert( array $op, array $ids ) {
+		$type = $this->string_field( $op, 'type', 100 );
+		if ( ! $this->registry->has( $type ) ) {
+			throw new EditException( 'Unknown element "' . $type . '".' );
+		}
+
+		$parent_id = isset( $op['parent'] ) ? (string) $op['parent'] : '';
+		$parent    = '' === $parent_id ? $this->root : $this->lookup( $parent_id, $ids );
+		$this->require_placement( $type, $parent );
+
+		$attrs = isset( $op['attrs'] ) ? $op['attrs'] : [];
+		if ( ! is_array( $attrs ) ) {
+			throw new EditException( '"attrs" must be an object.' );
+		}
+		$checked = [];
+		foreach ( $attrs as $key => $value ) {
+			if ( ! is_scalar( $value ) || strlen( (string) $value ) > self::MAX_VALUE_LENGTH ) {
+				throw new EditException( 'Setting "' . $key . '" must be a short text value.' );
+			}
+			$checked[ (string) $key ] = $this->checked_attr( $type, (string) $key, (string) $value );
+		}
+
+		$node            = Node::shortcode( $type, '', $checked );
+		$node->raw_close = '[/' . $type . ']';
+		$node->dirty     = true;
+		if ( isset( $op['text'] ) ) {
+			$this->require_text_param( $type );
+			$node->children[] = Node::text( $this->clean_text( $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
+		}
+
+		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
+		$this->place( $parent, $node, $index );
+	}
+
+	/**
+	 * Remove an element and everything in it.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 */
+	private function remove( Node $node ) {
+		$parent           = $this->parents[ $node ];
+		$parent->children = array_values(
+			array_filter(
+				$parent->children,
+				function ( Node $child ) use ( $node ) {
+					return $child !== $node;
+				}
+			)
+		);
+		$this->mark_removed( $node );
+	}
+
+	/**
+	 * Put a node at an element index of a parent, taking it out of the
+	 * parent first if it is already there.
+	 *
+	 * @param Node $parent Parent.
+	 * @param Node $node   Node.
+	 * @param int  $index  Position among the parent's elements; past the end appends.
+	 * @return void
+	 */
+	private function place( Node $parent, Node $node, $index ) {
+		$children = array_values(
+			array_filter(
+				$parent->children,
+				function ( Node $child ) use ( $node ) {
+					return $child !== $node;
+				}
+			)
+		);
+
+		$position = count( $children );
+		$seen     = 0;
+		foreach ( $children as $i => $child ) {
+			if ( $child->is_shortcode() ) {
+				if ( $seen === $index ) {
+					$position = $i;
+					break;
+				}
+				++$seen;
+			}
+		}
+		array_splice( $children, $position, 0, [ $node ] );
+		$parent->children        = $children;
+		$this->parents[ $node ] = $parent;
+	}
+
+	/**
+	 * Check a setting against the registry and clean its value.
+	 *
+	 * @param string $type  Element.
+	 * @param string $key   Setting name.
+	 * @param string $value Value.
+	 * @return string
+	 * @throws EditException When the setting or value is not allowed.
+	 */
+	private function checked_attr( $type, $key, $value ) {
+		$params = $this->registry->params( $type );
+		if ( 'element_content' === $key || ! isset( $params[ $key ] ) ) {
+			throw new EditException( $type . ' has no setting "' . $key . '".' );
+		}
+		$param = $params[ $key ];
+
+		if ( isset( $param['options'] ) ) {
+			$multi = in_array( $param['type'], [ 'checkbox_button_set', 'multiple_select' ], true );
+			if ( $multi && '' === $value ) {
+				return $value; // Nothing selected.
+			}
+			foreach ( $multi ? explode( ',', $value ) : [ $value ] as $choice ) {
+				if ( ! in_array( $choice, $param['options'], true ) ) {
+					throw new EditException( '"' . $choice . '" is not a valid value for ' . $type . ' ' . $key . '. Allowed: ' . implode( ', ', $param['options'] ) . '.' );
+				}
+			}
+			return $value;
+		}
+
+		if ( preg_match( '/[\x00-\x1F\x7F]/', $value ) ) {
+			throw new EditException( 'Setting "' . $key . '" contains control characters.' );
+		}
+		return (string) call_user_func( $this->sanitize_attr, $value, $param );
+	}
+
+	/**
+	 * The element must have text Gama AI can replace.
+	 *
+	 * @param string $type Element.
+	 * @return void
+	 * @throws EditException When it has none.
+	 */
+	private function require_text_param( $type ) {
+		$params = $this->registry->params( $type );
+		if ( ! isset( $params['element_content'] ) || ! in_array( $params['element_content']['type'], self::TEXT_TYPES, true ) ) {
+			throw new EditException( ( $type ? $type : 'This element' ) . ' has no editable text.' );
+		}
+	}
+
+	/**
+	 * The element may be placed in this parent.
+	 *
+	 * @param string $type   Element.
+	 * @param Node   $parent Parent.
+	 * @return void
+	 * @throws EditException When it may not.
+	 */
+	private function require_placement( $type, Node $parent ) {
+		$parent_type = $parent === $this->root ? '' : $parent->name;
+		$allowed     = isset( self::STRUCTURE[ $type ] ) ? self::STRUCTURE[ $type ] : self::CONTENT_PARENTS;
+		if ( ! in_array( $parent_type, $allowed, true ) ) {
+			throw new EditException( $type . ' cannot be placed in ' . ( '' === $parent_type ? 'the page root' : $parent_type ) . '.' );
+		}
+	}
+
+	/**
+	 * Clean element text and stop it from opening shortcodes.
+	 *
+	 * @param string $text Text.
+	 * @return string
+	 */
+	private function clean_text( $text ) {
+		$text = (string) call_user_func( $this->sanitize_text, $text );
+		return str_replace( [ '[', ']' ], [ '&#91;', '&#93;' ], $text );
+	}
+
+	/**
+	 * The element an operation targets.
+	 *
+	 * @param array<string,mixed> $op  Operation.
+	 * @param array<string,Node>  $ids Path ids.
+	 * @return Node
+	 * @throws EditException When it is missing.
+	 */
+	private function target( array $op, array $ids ) {
+		return $this->lookup( isset( $op['target'] ) ? (string) $op['target'] : '', $ids );
+	}
+
+	/**
+	 * An element by path id.
+	 *
+	 * @param string             $id  Path id.
+	 * @param array<string,Node> $ids Path ids.
+	 * @return Node
+	 * @throws EditException When it is missing or was removed.
+	 */
+	private function lookup( $id, array $ids ) {
+		if ( ! isset( $ids[ $id ] ) ) {
+			throw new EditException( 'No element with id "' . $id . '".' );
+		}
+		if ( $this->removed->contains( $ids[ $id ] ) ) {
+			throw new EditException( 'Element "' . $id . '" was removed by an earlier operation.' );
+		}
+		return $ids[ $id ];
+	}
+
+	/**
+	 * A required string field.
+	 *
+	 * @param array<string,mixed> $op         Operation.
+	 * @param string              $field      Field.
+	 * @param int                 $max_length Maximum length in bytes.
+	 * @return string
+	 * @throws EditException When it is missing or too long.
+	 */
+	private function string_field( array $op, $field, $max_length ) {
+		if ( ! isset( $op[ $field ] ) || ! is_scalar( $op[ $field ] ) || is_bool( $op[ $field ] ) ) {
+			throw new EditException( '"' . $field . '" is required.' );
+		}
+		$value = (string) $op[ $field ];
+		if ( strlen( $value ) > $max_length ) {
+			throw new EditException( '"' . $field . '" is longer than ' . $max_length . ' bytes.' );
+		}
+		return $value;
+	}
+
+	/**
+	 * A required non-negative integer "index".
+	 *
+	 * @param array<string,mixed> $op Operation.
+	 * @return int
+	 * @throws EditException When it is missing or invalid.
+	 */
+	private function index_field( array $op ) {
+		if ( ! isset( $op['index'] ) || ! is_int( $op['index'] ) || $op['index'] < 0 ) {
+			throw new EditException( '"index" must be a whole number, 0 or more.' );
+		}
+		return $op['index'];
+	}
+
+	/**
+	 * Record path ids and parents, numbered like PageModel.
+	 *
+	 * @param Node               $node   Node.
+	 * @param string             $prefix Its path id.
+	 * @param array<string,Node> $ids    Collected ids.
+	 * @return void
+	 */
+	private function index( Node $node, $prefix, array &$ids ) {
+		foreach ( $node->children as $child ) {
+			if ( $child->is_shortcode() ) {
+				$this->parents[ $child ] = $node;
+			}
+		}
+		foreach ( $node->shortcode_children() as $i => $child ) {
+			$id         = '' === $prefix ? (string) $i : $prefix . '.' . $i;
+			$ids[ $id ] = $child;
+			$this->index( $child, $id, $ids );
+		}
+	}
+
+	/**
+	 * Mark a node and everything in it as removed.
+	 *
+	 * @param Node $node Node.
+	 * @return void
+	 */
+	private function mark_removed( Node $node ) {
+		$this->removed->attach( $node );
+		foreach ( $node->shortcode_children() as $child ) {
+			$this->mark_removed( $child );
+		}
+	}
+}
