@@ -128,6 +128,21 @@ class DraftManager {
 	}
 
 	/**
+	 * Change a page's draft, creating the draft first if there is none.
+	 *
+	 * @param int                     $source_id Live page ID.
+	 * @param callable(string):string $edit      Gets the draft's markup and returns the new markup.
+	 * @return int Draft ID.
+	 * @throws DraftException When the page cannot be drafted.
+	 */
+	public function edit_draft( $source_id, callable $edit ) {
+		$draft_id = $this->create_draft( $source_id );
+		$draft    = $this->require_draft( $draft_id );
+		$this->store->update_content( $draft_id, $edit( $draft['content'] ) );
+		return $draft_id;
+	}
+
+	/**
 	 * Copy an approved draft onto the live page.
 	 *
 	 * @param int $draft_id Draft ID.

@@ -120,4 +120,23 @@ class DraftManagerTest extends TestCase {
 		$this->expectException( DraftException::class );
 		$this->drafts->publish( $this->page, 7 );
 	}
+
+	public function test_edit_draft_creates_then_reuses_the_draft() {
+		$first  = $this->drafts->edit_draft(
+			$this->page,
+			function ( $content ) {
+				return str_replace( 'Old', 'Mid', $content );
+			}
+		);
+		$second = $this->drafts->edit_draft(
+			$this->page,
+			function ( $content ) {
+				return str_replace( 'Mid', 'New', $content );
+			}
+		);
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( self::NEW, $this->store->get( $first )['content'] );
+		$this->assertSame( self::LIVE, $this->store->get( $this->page )['content'] );
+	}
 }

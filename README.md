@@ -5,7 +5,7 @@ AI-assisted editing for Avada WordPress websites.
 | Path | What it is |
 | --- | --- |
 | `plugin/gama-ai/` | WordPress plugin (PHP). Reads Avada pages, drafts, publishes and rolls back changes. |
-| `docs/` | Architecture and verification notes, starting with `phase0-avada-findings.md`. |
+| `docs/` | Architecture and verification notes, starting with `phase0-avada-findings.md`. `edit-operations.md` is the contract for AI edits. |
 
 The SaaS backend is not started yet.
 

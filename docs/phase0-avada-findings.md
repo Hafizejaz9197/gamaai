@@ -33,10 +33,11 @@ Test Page (ID 11): one container, one row, two 1/2 columns, a title and an image
     4. Roll back to snapshot 20. The live page was restored (same title text and same length), and a new snapshot 22 was recorded.
 
 - With plugin 0.2.0 and the registry captured (139 elements, Avada Builder 3.15.6, after opening the page once in Avada Builder Live), the Test Page model dropped from about 11.7 KB to 695 bytes of JSON (about 94% smaller), with `round_trips` still true. What is left is only what differs from Avada's defaults: column `type`, `last` and `border_position`, the image's `aspect_ratio`, `lightbox` and `image_id`, the title text and the image URL.
+- Plugin 0.3.0 edit compiler on the Test Page: an invalid value (`fusion_title size="9"`) was rejected with Avada's real allowed values (1-6, div, p). A valid batch (replace the title text, set the title size, insert a `fusion_text` after it) went into draft 26 with only those bytes changed (13,341 → 13,434 bytes), and the live page still showed the old title.
 
 ## Open
 
-- Whether a draft preview renders identically to the published page (not yet compared visually).
+- Draft preview renders the edits correctly (confirmed by the user on draft 26: new title and inserted paragraph shown with Avada styling). Still to compare a published draft pixel for pixel.
 - Pages with page options set (`_fusion` present), nested rows, global elements and other plugins' shortcodes.
 - Where `fusion_builder_map()` keeps the registered map at runtime. The defining file (`inc/helpers.php`) is over the 64 KB read limit of the inspection tool. Plugin 0.2.0 does not depend on it: it observes the filters Avada runs on each element's params (`fusion_builder_element_params`, `fusion_builder_responsive_params`, `fusion_builder_states_params`, registered in `inc/class-fusion-builder-element-helper.php`). Opening a page in Avada Builder Live fills the registry (confirmed). Whether the filters also run on normal front-end requests is still unconfirmed.
 

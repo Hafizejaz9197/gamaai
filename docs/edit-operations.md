@@ -1,0 +1,55 @@
+# Edit operations
+
+The AI never writes Avada shortcodes. It reads the page model and sends a
+list of typed operations. The plugin checks every operation against the
+Avada element registry of the running Avada Builder version, applies them to
+the page's draft, and returns the draft's new model. The live page changes
+only when the draft is published.
+
+```
+GET  /wp-json/gama-ai/v1/pages/{id}/model     page model (the draft's, if a draft is open)
+POST /wp-json/gama-ai/v1/pages/{id}/edits     { "operations": [ ... ] }
+```
+
+`POST .../edits` creates the draft when there is none and returns
+`draft_id`, `preview_url` and `sections` (the new model). On an invalid
+operation it returns 400 with the failing operation's index in
+`data.operation`, and nothing is written.
+
+## Operations
+
+| op | Fields | What it does |
+| --- | --- | --- |
+| `replace_text` | `target`, `text` | Replaces an element's text. HTML is allowed and cleaned with `wp_kses_post`. Only elements whose `element_content` is `tinymce`, `textarea` or `textfield` (titles, text blocks, buttons and similar) have text. |
+| `set_attribute` | `target`, `name`, `value` | Sets one setting. The name must be one of the element's Avada settings. For choice settings the value must be one of the allowed values (comma separated for multi-choice). Other values are cleaned by setting type (URLs with `esc_url_raw`, plain text with `sanitize_text_field`). |
+| `insert_element` | `parent`, `type`, optional `index`, `attrs`, `text` | Adds an element. `parent` is `""` for the page root. Containers go in the root, rows in containers, columns in rows, nested rows in columns, nested columns in nested rows, and every other element in a column. Settings that are left out use Avada's defaults. Without `index` the element is added last. |
+| `remove_element` | `target` | Removes an element and everything in it. |
+| `move_element` | `target`, `index` | Moves an element to another position in the same parent. This covers `move_section` from the architecture plan. |
+
+`build_section` (a full new section from a design brief) is Phase 4.
+
+## Rules
+
+- `target` and `parent` are the path ids from the page model (`"0.1.2"`).
+  They always refer to the page as the model showed it, so removing or
+  inserting an element earlier in the list does not shift later ids.
+  An element removed earlier in the list cannot be edited.
+- `index` counts the parent's elements at the time the operation runs.
+- At most 50 operations per request; all of them apply, or none.
+- Square brackets in text are written as HTML entities, so text can never
+  open a shortcode.
+- Edits need the registry for the running Avada Builder version
+  (`GET /registry` shows `"current": true`). Without it the route returns
+  409.
+
+## Example
+
+```json
+{
+  "operations": [
+    { "op": "replace_text", "target": "0.0.0.0", "text": "Welcome to Sabahat" },
+    { "op": "set_attribute", "target": "0.0.0.0", "name": "size", "value": "1" },
+    { "op": "insert_element", "parent": "0.0.0", "index": 1, "type": "fusion_text", "text": "<p>Short intro.</p>" }
+  ]
+}
+```

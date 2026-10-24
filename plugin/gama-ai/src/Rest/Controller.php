@@ -13,6 +13,8 @@ use GamaAI\Avada\ShortcodeParser;
 use GamaAI\Compatibility;
 use GamaAI\Drafts\DraftException;
 use GamaAI\Drafts\DraftManager;
+use GamaAI\Edits\EditCompiler;
+use GamaAI\Edits\EditException;
 
 /**
  * Routes under /wp-json/gama-ai/v1. Every route needs a logged-in user with
@@ -94,6 +96,22 @@ class Controller {
 				'callback'            => [ $this, 'create_draft' ],
 				'permission_callback' => [ $this, 'can_edit_page' ],
 				'args'                => $id,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/pages/(?P<id>\d+)/edits',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'edit' ],
+				'permission_callback' => [ $this, 'can_edit_page' ],
+				'args'                => $id + [
+					'operations' => [
+						'type'     => 'array',
+						'items'    => [ 'type' => 'object' ],
+						'required' => true,
+					],
+				],
 			]
 		);
 		register_rest_route(
@@ -190,7 +208,8 @@ class Controller {
 	}
 
 	/**
-	 * GET /pages/{id}/model.
+	 * GET /pages/{id}/model. When the page has an open draft, the model is
+	 * the draft's, because that is what edit operations change.
 	 *
 	 * @param \WP_REST_Request $request Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -200,20 +219,17 @@ class Controller {
 		if ( ! $post instanceof \WP_Post ) {
 			return new \WP_Error( 'gama_ai_not_found', 'Page not found.', [ 'status' => 404 ] );
 		}
-		$root     = ( new ShortcodeParser() )->parse( $post->post_content );
-		$registry = RegistryCollector::load();
-		$report   = Compatibility::report();
-		// A registry from another Avada version could hide settings that are not defaults any more.
-		if ( $registry && $registry->builder_version() !== $report['avada_builder'] ) {
-			$registry = null;
-		}
+		$draft_id = $this->drafts->find_draft( (int) $post->ID );
+		$content  = $draft_id ? get_post( $draft_id )->post_content : $post->post_content;
+		$registry = $this->current_registry();
 		return rest_ensure_response(
 			[
 				'id'               => (int) $post->ID,
 				'title'            => $post->post_title,
-				'round_trips'      => $this->drafts->round_trips( $post->post_content ),
+				'draft_id'         => $draft_id,
+				'round_trips'      => $this->drafts->round_trips( $content ),
 				'defaults_omitted' => null !== $registry,
-				'sections'         => ( new PageModel( $registry ) )->build( $root ),
+				'sections'         => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( $content ) ),
 			]
 		);
 	}
@@ -238,6 +254,67 @@ class Controller {
 				];
 			}
 		);
+	}
+
+	/**
+	 * POST /pages/{id}/edits. Applies edit operations to the page's draft,
+	 * creating the draft if needed. The live page is not changed.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function edit( $request ) {
+		$blocked = $this->write_blocked();
+		if ( $blocked ) {
+			return $blocked;
+		}
+		$registry = $this->current_registry();
+		if ( null === $registry ) {
+			return new \WP_Error( 'gama_ai_no_registry', 'Avada element settings for this version are not known yet. Open any page in Avada Builder once.', [ 'status' => 409 ] );
+		}
+		$compiler   = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ] );
+		$operations = $request['operations'];
+		try {
+			$draft_id = $this->drafts->edit_draft(
+				(int) $request['id'],
+				function ( $content ) use ( $compiler, $operations ) {
+					return $compiler->apply( $content, $operations );
+				}
+			);
+		} catch ( EditException $e ) {
+			return new \WP_Error( 'gama_ai_edit', $e->getMessage(), [ 'status' => 400, 'operation' => $e->operation_index() ] );
+		} catch ( DraftException $e ) {
+			return new \WP_Error( 'gama_ai_draft', $e->getMessage(), [ 'status' => 400 ] );
+		}
+
+		$draft = get_post( $draft_id );
+		return rest_ensure_response(
+			[
+				'draft_id'    => $draft_id,
+				'preview_url' => get_preview_post_link( $draft_id ),
+				'sections'    => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( $draft->post_content ) ),
+			]
+		);
+	}
+
+	/**
+	 * Clean a free-form setting value by its Avada setting type.
+	 *
+	 * @param string              $value Value.
+	 * @param array<string,mixed> $param Registry param.
+	 * @return string
+	 */
+	public function sanitize_setting( $value, array $param ) {
+		switch ( $param['type'] ) {
+			case 'link_selector':
+			case 'upload':
+				return esc_url_raw( $value );
+			case 'textarea':
+			case 'tinymce':
+				return wp_kses_post( $value );
+			default:
+				return sanitize_text_field( $value );
+		}
 	}
 
 	/**
@@ -284,6 +361,19 @@ class Controller {
 				return [ 'snapshot_id' => $this->drafts->rollback( (int) $request['id'], get_current_user_id() ) ];
 			}
 		);
+	}
+
+	/**
+	 * The stored registry, if it was read from the running Avada Builder.
+	 * A registry from another version could hide settings that are no longer
+	 * defaults, or allow settings that no longer exist.
+	 *
+	 * @return \GamaAI\Avada\Registry|null
+	 */
+	private function current_registry() {
+		$registry = RegistryCollector::load();
+		$report   = Compatibility::report();
+		return $registry && $registry->builder_version() === $report['avada_builder'] ? $registry : null;
 	}
 
 	/**
