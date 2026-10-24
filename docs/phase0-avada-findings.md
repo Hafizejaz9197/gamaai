@@ -18,11 +18,24 @@ here comes from saving real pages; items marked "open" still need that.
 | How to detect the builder version | The constant `FUSION_BUILDER_VERSION` (`3.15.6` here). | `fusion-builder.php` |
 | Is there a REST API for editing pages? | No. Avada's REST namespaces on the site are `awb` and `awb/instagram`, and nothing seen edits page layouts. Gama AI uses the standard WordPress post APIs. | Site `/wp-json/` index |
 
-## Open (need real pages on the test site)
+## Confirmed on a real page (2026-10-24)
 
-- Exact markup Avada Builder writes when a page is saved (attribute order, whitespace, nested rows, global elements). The unit test fixture is hand-written until real exports exist.
-- Which other meta keys Avada writes on a normal page save, besides `_fusion`.
-- Whether a draft preview renders identically to the published page.
+Test Page (ID 11): one container, one row, two 1/2 columns, a title and an image, saved in Avada Builder.
+
+- Avada Builder writes every attribute of every element, including the defaults and empty values. This two-element page is about 13 KB of markup, and the unfiltered page model is about 11.7 KB of JSON. The page model must leave out default values before it is sent to an AI provider. That needs each element's defaults from the registry.
+- Columns carry the `type` attribute twice (`type="1_2"` near the start and again later). WordPress keeps the last value. The parser keeps the raw tag, so the round trip is unaffected.
+- No whitespace or newlines between tags.
+- The only post meta on a page without page options is `fusion_builder_status` (`active` once the builder is used, empty before). `_fusion` appears only after page options are changed.
+- A full cycle ran through the plugin's REST routes:
+    1. Create a draft (ID 17), which copied `fusion_builder_status` and left the live page unchanged.
+    2. Edit the draft's title text.
+    3. Publish. The live page showed the new title and the draft was deleted.
+    4. Roll back to snapshot 20. The live page was restored (same title text and same length), and a new snapshot 22 was recorded.
+
+## Open
+
+- Whether a draft preview renders identically to the published page (not yet compared visually).
+- Pages with page options set (`_fusion` present), nested rows, global elements and other plugins' shortcodes.
 - Where `fusion_builder_map()` keeps the registered map at runtime, so the capability registry can be generated from the live site instead of hand-written. The defining file (`inc/helpers.php`) is over the 64 KB read limit of the inspection tool.
 
 ## Design consequences

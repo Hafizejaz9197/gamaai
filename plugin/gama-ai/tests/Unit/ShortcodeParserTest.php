@@ -48,6 +48,20 @@ class ShortcodeParserTest extends TestCase {
 		$this->assertSame( 'https://example.com/contact', $elements[2]->attrs['link'] );
 	}
 
+	public function test_reads_markup_saved_by_avada_builder() {
+		$root = ( new ShortcodeParser() )->parse( file_get_contents( dirname( __DIR__ ) . '/fixtures/real-test-page-two-columns.txt' ) );
+
+		$row     = $root->children[0]->children[0];
+		$columns = $row->shortcode_children();
+		$this->assertSame( 'fusion_builder_row', $row->name );
+		$this->assertCount( 2, $columns );
+		$this->assertSame( 'Testing title', $columns[0]->children[0]->children[0]->raw );
+		$this->assertSame( '14|medium', $columns[1]->children[0]->attrs['image_id'] );
+		// Avada Builder writes "type" twice on columns; WordPress keeps the last value.
+		$this->assertSame( 2, substr_count( $columns[0]->raw, ' type="1_2"' ) );
+		$this->assertSame( '1_2', $columns[0]->attrs['type'] );
+	}
+
 	public function test_self_closing_tag_has_no_children_or_close() {
 		$root = ( new ShortcodeParser() )->parse( '[fusion_separator style_type="default" /][fusion_text]x[/fusion_text]' );
 		$this->assertCount( 2, $root->children );
