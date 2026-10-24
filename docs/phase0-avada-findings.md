@@ -37,7 +37,7 @@ Test Page (ID 11): one container, one row, two 1/2 columns, a title and an image
 
 ## Open
 
-- Whether a draft preview renders identically to the published page (not yet compared visually; the inspection tool cannot load logged-in previews).
+- Draft preview renders the edits correctly (confirmed by the user on draft 26: new title and inserted paragraph shown with Avada styling). Still to compare a published draft pixel for pixel.
 - Pages with page options set (`_fusion` present), nested rows, global elements and other plugins' shortcodes.
 - Where `fusion_builder_map()` keeps the registered map at runtime. The defining file (`inc/helpers.php`) is over the 64 KB read limit of the inspection tool. Plugin 0.2.0 does not depend on it: it observes the filters Avada runs on each element's params (`fusion_builder_element_params`, `fusion_builder_responsive_params`, `fusion_builder_states_params`, registered in `inc/class-fusion-builder-element-helper.php`). Opening a page in Avada Builder Live fills the registry (confirmed). Whether the filters also run on normal front-end requests is still unconfirmed.
 
