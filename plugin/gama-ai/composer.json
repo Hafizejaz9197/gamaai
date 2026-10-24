@@ -1,0 +1,25 @@
+{
+    "name": "gamaai/gama-ai-plugin",
+    "description": "Gama AI WordPress plugin for Avada websites.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "GamaAI\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "GamaAI\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}

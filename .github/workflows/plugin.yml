@@ -1,0 +1,46 @@
+name: Plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ['plugin-v*']
+    paths: ['plugin/**', '.github/workflows/plugin.yml']
+  pull_request:
+    paths: ['plugin/**', '.github/workflows/plugin.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['7.4', '8.3']
+    defaults:
+      run:
+        working-directory: plugin/gama-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - run: find src gama-ai.php -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: vendor/bin/phpunit
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/plugin-v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        run: echo "zip=plugin/gama-ai/$(plugin/gama-ai/bin/build-zip.sh)" >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "${{ steps.build.outputs.zip }}" --title "Gama AI plugin ${GITHUB_REF_NAME#plugin-v}" --notes "See plugin/gama-ai/readme.txt for the changelog."
