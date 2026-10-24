@@ -8,6 +8,7 @@
 namespace GamaAI\Rest;
 
 use GamaAI\Avada\PageModel;
+use GamaAI\Avada\RegistryCollector;
 use GamaAI\Avada\ShortcodeParser;
 use GamaAI\Compatibility;
 use GamaAI\Drafts\DraftException;
@@ -56,6 +57,23 @@ class Controller {
 				'permission_callback' => function () {
 					return current_user_can( 'edit_pages' );
 				},
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/registry',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'registry' ],
+				'permission_callback' => function () {
+					return current_user_can( 'manage_options' );
+				},
+				'args'                => [
+					'full' => [
+						'type'    => 'boolean',
+						'default' => false,
+					],
+				],
 			]
 		);
 		register_rest_route(
@@ -143,6 +161,35 @@ class Controller {
 	}
 
 	/**
+	 * GET /registry. A summary by default; ?full=1 returns every element.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response
+	 */
+	public function registry( $request ) {
+		$registry = RegistryCollector::load();
+		$report   = Compatibility::report();
+		if ( null === $registry ) {
+			return rest_ensure_response(
+				[
+					'available' => false,
+					'message'   => 'Avada has not mapped its elements since Gama AI was activated. Open any page in Avada Builder once.',
+				]
+			);
+		}
+		$data = [
+			'available'       => true,
+			'builder_version' => $registry->builder_version(),
+			'current'         => $registry->builder_version() === $report['avada_builder'],
+			'elements'        => $registry->count(),
+		];
+		if ( $request['full'] ) {
+			$data['registry'] = $registry->to_array();
+		}
+		return rest_ensure_response( $data );
+	}
+
+	/**
 	 * GET /pages/{id}/model.
 	 *
 	 * @param \WP_REST_Request $request Request.
@@ -153,13 +200,20 @@ class Controller {
 		if ( ! $post instanceof \WP_Post ) {
 			return new \WP_Error( 'gama_ai_not_found', 'Page not found.', [ 'status' => 404 ] );
 		}
-		$root = ( new ShortcodeParser() )->parse( $post->post_content );
+		$root     = ( new ShortcodeParser() )->parse( $post->post_content );
+		$registry = RegistryCollector::load();
+		$report   = Compatibility::report();
+		// A registry from another Avada version could hide settings that are not defaults any more.
+		if ( $registry && $registry->builder_version() !== $report['avada_builder'] ) {
+			$registry = null;
+		}
 		return rest_ensure_response(
 			[
-				'id'          => (int) $post->ID,
-				'title'       => $post->post_title,
-				'round_trips' => $this->drafts->round_trips( $post->post_content ),
-				'sections'    => ( new PageModel() )->build( $root ),
+				'id'               => (int) $post->ID,
+				'title'            => $post->post_title,
+				'round_trips'      => $this->drafts->round_trips( $post->post_content ),
+				'defaults_omitted' => null !== $registry,
+				'sections'         => ( new PageModel( $registry ) )->build( $root ),
 			]
 		);
 	}

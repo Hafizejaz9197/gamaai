@@ -23,6 +23,19 @@ class PageModel {
 	/** Inner text is cut to this many characters. */
 	const MAX_TEXT_LENGTH = 400;
 
+	/** @var Registry|null */
+	private $registry;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param Registry|null $registry When given, settings left at Avada's
+	 *                                default are left out of the outline.
+	 */
+	public function __construct( $registry = null ) {
+		$this->registry = $registry;
+	}
+
 	/**
 	 * Build the outline.
 	 *
@@ -71,7 +84,7 @@ class PageModel {
 				'type' => $child->name,
 			];
 
-			$attrs = $this->attrs( $child->attrs );
+			$attrs = $this->attrs( $child );
 			if ( $attrs ) {
 				$entry['attrs'] = $attrs;
 			}
@@ -91,15 +104,18 @@ class PageModel {
 	}
 
 	/**
-	 * Non-empty attributes, with long values summarised.
+	 * Non-empty, non-default attributes, with long values summarised.
 	 *
-	 * @param array<string|int,string> $attrs Attributes.
+	 * @param Node $node Shortcode node.
 	 * @return array<string|int,string>
 	 */
-	private function attrs( array $attrs ) {
+	private function attrs( Node $node ) {
 		$out = [];
-		foreach ( $attrs as $key => $value ) {
+		foreach ( $node->attrs as $key => $value ) {
 			if ( '' === $value ) {
+				continue;
+			}
+			if ( $this->registry && is_string( $key ) && $this->registry->is_default( $node->name, $key, $value ) ) {
 				continue;
 			}
 			$out[ $key ] = strlen( $value ) > self::MAX_ATTR_LENGTH
