@@ -10,7 +10,7 @@ stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
 mkdir -p "$stage/gama-ai" build
-cp -R gama-ai.php readme.txt src "$stage/gama-ai/"
+cp -R gama-ai.php readme.txt src assets "$stage/gama-ai/"
 rm -f "$out"
 (cd "$stage" && zip -qr - gama-ai) > "$out"
 echo "$out"

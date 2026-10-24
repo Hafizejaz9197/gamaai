@@ -139,4 +139,17 @@ class DraftManagerTest extends TestCase {
 		$this->assertSame( self::NEW, $this->store->get( $first )['content'] );
 		$this->assertSame( self::LIVE, $this->store->get( $this->page )['content'] );
 	}
+
+	public function test_discard_removes_only_the_draft() {
+		$draft = $this->drafts->create_draft( $this->page );
+		$this->drafts->update_draft( $draft, self::NEW );
+
+		$this->assertSame( $this->page, $this->drafts->discard( $draft ) );
+		$this->assertNull( $this->store->get( $draft ) );
+		$this->assertNull( $this->drafts->find_draft( $this->page ) );
+		$this->assertSame( self::LIVE, $this->store->get( $this->page )['content'] );
+
+		$this->expectException( DraftException::class );
+		$this->drafts->discard( $this->page );
+	}
 }

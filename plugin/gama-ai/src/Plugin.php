@@ -7,9 +7,12 @@
 
 namespace GamaAI;
 
+use GamaAI\Admin\SettingsPage;
 use GamaAI\Drafts\DraftManager;
 use GamaAI\Drafts\WpPostStore;
+use GamaAI\Frontend\CommandBar;
 use GamaAI\Rest\Controller;
+use GamaAI\Saas\SaasClient;
 
 /**
  * Plugin bootstrap.
@@ -26,10 +29,12 @@ class Plugin {
 		add_action(
 			'rest_api_init',
 			function () {
-				( new Controller( new DraftManager( new WpPostStore() ) ) )->register();
+				( new Controller( new DraftManager( new WpPostStore() ), SaasClient::from_options() ) )->register();
 			}
 		);
 		add_action( 'admin_notices', [ $this, 'compatibility_notice' ] );
+		( new SettingsPage() )->register();
+		( new CommandBar( new DraftManager( new WpPostStore() ) ) )->register();
 	}
 
 	/**

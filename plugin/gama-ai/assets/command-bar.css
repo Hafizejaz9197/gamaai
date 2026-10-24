@@ -1,0 +1,21 @@
+#gama-ai-launch,#gama-ai-panel{--g-bg:#fff;--g-text:#1c2024;--g-muted:#60646c;--g-line:#e0e1e6;--g-accent:#3e63dd;--g-ok:#e9f6ec;--g-bad:#fdecec;--g-bad-text:#a1131e;font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--g-text);box-sizing:border-box;letter-spacing:normal;text-transform:none}
+@media (prefers-color-scheme:dark){#gama-ai-launch,#gama-ai-panel{--g-bg:#18191b;--g-text:#edeef0;--g-muted:#b0b4ba;--g-line:#2e3135;--g-accent:#8da4ef;--g-ok:#132d21;--g-bad:#3b1219;--g-bad-text:#ff9592}}
+#gama-ai-panel *{box-sizing:border-box;font:inherit;color:inherit;letter-spacing:inherit}
+#gama-ai-launch{position:fixed;right:20px;bottom:20px;z-index:999998;border:0;border-radius:999px;padding:12px 18px;background:var(--g-accent);color:#fff;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+#gama-ai-panel{position:fixed;right:20px;bottom:20px;z-index:999999;width:380px;max-width:calc(100vw - 32px);max-height:calc(100vh - 60px);overflow:auto;background:var(--g-bg);border:1px solid var(--g-line);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);padding:16px}
+#gama-ai-panel[hidden],#gama-ai-launch[hidden],#gama-ai-panel [hidden]{display:none!important}
+#gama-ai-panel .g-head{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px}
+#gama-ai-panel .g-head strong{font-size:16px;font-weight:600}
+#gama-ai-panel .g-close{background:none;border:0;font-size:22px;line-height:1;cursor:pointer;color:var(--g-muted);padding:0 4px}
+#gama-ai-panel .g-note{font-size:13px;color:var(--g-muted);margin:0 0 10px}
+#gama-ai-panel .g-note a{color:var(--g-accent)}
+#gama-ai-panel textarea{width:100%;min-height:90px;resize:vertical;padding:8px 10px;border:1px solid var(--g-line);border-radius:8px;background:var(--g-bg);color:var(--g-text)}
+#gama-ai-panel .g-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+#gama-ai-panel .g-btn{display:inline-block;border:1px solid var(--g-accent);background:var(--g-accent);color:#fff;border-radius:8px;padding:7px 14px;cursor:pointer;text-decoration:none;font-weight:500}
+#gama-ai-panel .g-btn.g-ghost{background:none;color:var(--g-accent)}
+#gama-ai-panel .g-btn[disabled]{opacity:.55;cursor:wait}
+#gama-ai-panel .g-hint{font-size:12px;color:var(--g-muted)}
+#gama-ai-panel .g-result{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--g-ok)}
+#gama-ai-panel .g-result.g-error{background:var(--g-bad);color:var(--g-bad-text)}
+#gama-ai-panel .g-result p{margin:0 0 6px}
+#gama-ai-panel .g-cost{font-size:12px;color:var(--g-muted);margin-top:4px}
