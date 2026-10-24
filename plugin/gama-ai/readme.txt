@@ -21,7 +21,7 @@ the matching WordPress capability.
 
 = 0.4.0 =
 * AI edits: POST /gama-ai/v1/pages/{id}/ai-edit sends the page model, the settings of the element types it may use and the request to the Gama AI service, and writes the returned operations to the draft.
-* Service connection: GET/POST /gama-ai/v1/settings (administrators). The site token is stored but never returned.
+* Service connection: Settings → Gama AI, and GET/POST /gama-ai/v1/settings (administrators). The site token is stored but never shown or returned.
 
 = 0.3.0 =
 * Edit compiler: replace_text, set_attribute, insert_element, remove_element and move_element, checked against Avada's element settings (POST /gama-ai/v1/pages/{id}/edits). Edits go to the page's draft only.

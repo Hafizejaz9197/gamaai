@@ -61,5 +61,6 @@ php artisan gama:site-create 1 "Sabahat" https://avadawebsites.com/sabahat   # p
 php artisan test
 ```
 
-Production uses PostgreSQL (`DB_CONNECTION=pgsql`). CI runs the tests on
-SQLite and PostgreSQL.
+Production can use MariaDB/MySQL or PostgreSQL. CI runs the tests on SQLite,
+PostgreSQL and MariaDB. For cPanel hosting, `bin/build-deploy-zip.sh` builds a
+zip with production dependencies included; see `docs/deploy-cpanel.md`.

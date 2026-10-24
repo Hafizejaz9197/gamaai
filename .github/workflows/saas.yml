@@ -15,8 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        database: [sqlite, pgsql]
+        database: [sqlite, pgsql, mariadb]
     services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_DATABASE: gama_test
+          MARIADB_USER: gama
+          MARIADB_PASSWORD: gama
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 20
       postgres:
         image: postgres:16
         env:
@@ -34,7 +44,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: pdo_sqlite, pdo_pgsql
+          extensions: pdo_sqlite, pdo_pgsql, pdo_mysql
           tools: composer
           coverage: none
       - run: composer install --no-interaction --no-progress
@@ -44,5 +54,8 @@ jobs:
         run: |
           if [ "${{ matrix.database }}" = "pgsql" ]; then
             export DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=gama_test DB_USERNAME=gama DB_PASSWORD=gama
+          fi
+          if [ "${{ matrix.database }}" = "mariadb" ]; then
+            export DB_CONNECTION=mariadb DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=gama_test DB_USERNAME=gama DB_PASSWORD=gama
           fi
           php artisan test
