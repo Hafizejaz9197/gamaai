@@ -77,7 +77,7 @@ An element inserted one or two layout levels too high (content into a container 
 
 ## Images
 
-`fusion_imageframe` keeps its image in `element_content` (setting type `upload`). `replace_text` on it only accepts an `http(s)` URL. Set `image_id` to `"<attachment id>|full"` so Avada Builder shows the picked media library image. AI requests that mention images carry `media`: up to 12 recent media library images (`id`, `url`, `title`).
+`fusion_imageframe` keeps its image in `element_content` (setting type `upload`). `replace_text` on it only accepts an `http(s)` URL. Setting `image_id` to `"<attachment id>|full"` (with `set_attribute` or in `insert_element` attrs) also sets `element_content` to that attachment's URL; an id that is not an image in the media library is an error. AI requests that mention images carry `media`: up to 12 recent media library images (`id`, `url`, `title`).
 
 ## Attached pictures
 

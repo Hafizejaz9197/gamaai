@@ -106,6 +106,32 @@ class EditCompilerTest extends TestCase {
 		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://x.com/a.jpg][fusion_code]' ] ], 'needs a web address' );
 	}
 
+	private function with_media( array $operations ) {
+		$media = function ( $id ) {
+			return 87 === $id ? 'https://example.com/award.jpg' : null;
+		};
+		return ( new EditCompiler( $this->registry(), null, null, $media ) )->apply( self::PAGE, $operations );
+	}
+
+	public function test_setting_an_image_id_shows_that_media_library_image() {
+		$out = $this->with_media( [ [ 'op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '87|full' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_inserted_image_gets_its_picture_from_the_id() {
+		$out = $this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '87|full' ] ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_image_id_must_be_in_the_media_library() {
+		try {
+			$this->with_media( [ [ 'op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '5|full' ] ] );
+			$this->fail( 'Expected the id to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'no image with id 5', $e->getMessage() );
+		}
+	}
+
 	public function test_replace_text_needs_a_text_setting() {
 		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'x' ] ], 'fusion_imageframe needs a web address' );
 		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.0', 'text' => 'x' ] ], 'has no editable text' );

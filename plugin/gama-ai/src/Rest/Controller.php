@@ -459,7 +459,7 @@ class Controller {
 		if ( null === $registry ) {
 			return new \WP_Error( 'gama_ai_no_registry', 'Avada element settings for this version are not known yet. Open any page in Avada Builder once.', [ 'status' => 409 ] );
 		}
-		$compiler   = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ] );
+		$compiler   = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ] );
 		$operations = $request['operations'];
 		try {
 			$draft_id = $this->drafts->edit_draft(
@@ -553,7 +553,7 @@ class Controller {
 			return $result + [ 'draft_id' => $draft_id ];
 		}
 
-		$compiler = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ] );
+		$compiler = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ] );
 		try {
 			$draft_id = $this->drafts->edit_draft(
 				$page_id,
@@ -692,6 +692,20 @@ class Controller {
 	public function can_edit_task( $request ) {
 		$task = $this->tasks->get( (int) $request['id'] );
 		return null !== $task && current_user_can( 'edit_post', $task['page_id'] );
+	}
+
+	/**
+	 * URL of a media library image, or null when the id is not an image.
+	 *
+	 * @param int $id Attachment id.
+	 * @return string|null
+	 */
+	public function image_url( $id ) {
+		if ( ! wp_attachment_is_image( (int) $id ) ) {
+			return null;
+		}
+		$url = wp_get_attachment_url( (int) $id );
+		return $url ? (string) $url : null;
 	}
 
 	/**

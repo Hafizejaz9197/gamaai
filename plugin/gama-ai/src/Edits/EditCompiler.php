@@ -69,6 +69,9 @@ class EditCompiler {
 	/** @var callable(string,array):string */
 	private $sanitize_attr;
 
+	/** @var callable(int):(string|null)|null */
+	private $media_url;
+
 	/** @var \SplObjectStorage Node => parent Node. */
 	private $parents;
 
@@ -97,14 +100,16 @@ class EditCompiler {
 	 * @param Registry      $registry      Avada registry of the running builder version.
 	 * @param callable|null $sanitize_text Cleans element text (HTML allowed), e.g. wp_kses_post.
 	 * @param callable|null $sanitize_attr Cleans a setting value; receives the value and the registry param.
+	 * @param callable|null $media_url     Given a media library id, returns that image's URL or null.
 	 */
-	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null ) {
+	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null, $media_url = null ) {
 		$identity            = function ( $value ) {
 			return $value;
 		};
 		$this->registry      = $registry;
 		$this->sanitize_text = $sanitize_text ? $sanitize_text : $identity;
 		$this->sanitize_attr = $sanitize_attr ? $sanitize_attr : $identity;
+		$this->media_url     = $media_url;
 	}
 
 	/**
@@ -170,6 +175,7 @@ class EditCompiler {
 				$key   = $this->string_field( $op, 'name', 100 );
 				$value = $this->string_field( $op, 'value', self::MAX_VALUE_LENGTH );
 				$node->set_attr( $key, $this->checked_attr( $node->name, $key, $value ) );
+				$this->link_media( $node );
 				return;
 			case 'insert_element':
 				$this->insert( $op, $ids );
@@ -246,6 +252,10 @@ class EditCompiler {
 		if ( isset( $op['text'] ) ) {
 			$this->require_text_param( $type );
 			$node->children[] = Node::text( $this->clean_content( $type, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
+		}
+
+		if ( ! isset( $op['text'] ) || isset( $checked['image_id'] ) ) {
+			$this->link_media( $node );
 		}
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
@@ -542,6 +552,36 @@ class EditCompiler {
 			throw new EditException( $type . ' needs a web address (https://...) as its content.' );
 		}
 		return (string) call_user_func( $this->sanitize_attr, $url, $param );
+	}
+
+	/**
+	 * Keep an image element's picture and its media library id together:
+	 * when image_id ("87|full") is set, the picture becomes that media
+	 * library image, as when it is chosen in Avada Builder. The id is the
+	 * source of truth, so an AI that sets only one of them still leaves a
+	 * working image, and an id that is not in the media library is refused.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 * @throws EditException When the id is not an image in the media library.
+	 */
+	private function link_media( Node $node ) {
+		$params = $this->registry->params( $node->name );
+		if ( null === $this->media_url || ! isset( $node->attrs['image_id'], $params['element_content'] )
+			|| ! in_array( $params['element_content']['type'], self::URL_TYPES, true ) ) {
+			return;
+		}
+		if ( ! preg_match( '/^(\d+)(?:\|[a-z0-9_-]*)?$/i', $node->attrs['image_id'], $m ) ) {
+			if ( '' === $node->attrs['image_id'] ) {
+				return;
+			}
+			throw new EditException( 'image_id must be a media library id such as "87|full".' );
+		}
+		$url = call_user_func( $this->media_url, (int) $m[1] );
+		if ( ! is_string( $url ) || '' === $url ) {
+			throw new EditException( 'There is no image with id ' . $m[1] . ' in the media library.' );
+		}
+		$node->children = [ Node::text( $this->clean_content( $node->name, $url ) ) ];
 	}
 
 	/**

@@ -31,7 +31,7 @@ Operations:
 - move_element: move an element to another position in the same parent.
 - duplicate_element: copy an element with everything in it, placed right after it.
 
-When `media` is given, it lists images from the site's media library. To show one in an image element (fusion_imageframe), set its text (`element_content`) to the image's `url` with replace_text and its `image_id` setting to "ID|full", such as "42|full". Use only urls listed in `media`.
+When `media` is given, it lists images from the site's media library. To show one in an image element (fusion_imageframe), set its `image_id` setting to "ID|full", such as "42|full" (set_attribute with name "image_id"); the plugin then shows that media library image. Use only ids listed in `media`. To fix a broken or wrong image, set `image_id` the same way.
 
 Ids always refer to the page as given, even after earlier operations in your list remove or insert elements. New elements have no id; use their `ref`.
 
@@ -213,10 +213,49 @@ PROMPT;
                 }
                 $op['attrs'] = (object) $attrs;
             }
+            if ($op['op'] === 'set_attribute') {
+                $op = self::setAttribute($op);
+            }
             $operations[] = $op;
         }
 
         return [$data['summary'], $operations];
+    }
+
+    /**
+     * Models that only get JSON mode (no enforced schema) sometimes name the
+     * setting under another key, such as {"attribute": "image_id"}, or as
+     * its own key, {"image_id": "87|full"}. Read those forms; anything else
+     * is not guessed at.
+     *
+     * @param  array<string, mixed>  $op
+     * @return array<string, mixed>
+     *
+     * @throws EditPlannerException
+     */
+    private static function setAttribute(array $op): array
+    {
+        $name = $op['name'] ?? null;
+        $value = $op['value'] ?? null;
+        if (! is_string($name) || $name === '' || $name === 'set_attribute') {
+            $name = null;
+            foreach (['setting', 'attribute', 'attr', 'key', 'param', 'param_name'] as $alias) {
+                if (is_string($op[$alias] ?? null) && $op[$alias] !== '') {
+                    $name = $op[$alias];
+                    break;
+                }
+            }
+        }
+        $extra = array_diff_key($op, array_flip(['op', 'target', 'name', 'value', 'setting', 'attribute', 'attr', 'key', 'param', 'param_name']));
+        if ($name === null && count($extra) === 1 && is_scalar(reset($extra))) {
+            $name = (string) key($extra);
+            $value = $value ?? (string) reset($extra);
+        }
+        if ($name === null || ! is_scalar($value) || ! is_string($op['target'] ?? null)) {
+            throw new EditPlannerException('The AI answer was not in the expected format (a setting change without a setting name).');
+        }
+
+        return ['op' => 'set_attribute', 'target' => $op['target'], 'name' => $name, 'value' => (string) $value];
     }
 
     /**

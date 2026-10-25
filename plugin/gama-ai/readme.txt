@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,10 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.8.1 =
+* Image elements: setting image_id ("87|full") now also sets the picture to that media library image, as choosing it in Avada Builder does. An id that is not an image in the media library is refused. Fixes broken images in one step.
+* The service reads setting changes that weaker AI models write in other shapes (such as {"attribute": "image_id"}) instead of failing.
 
 = 0.8.0 =
 * Pin tasks: "+ Pin" in the Gama AI panel, then click any heading, text, image, button, column or section on the page. "Save as task" keeps the request with its pin; the AI works on it only when you press Fix (or "Fix all open"). Tasks list (This page / All) with Open, Ready to review and Done; publishing the draft marks its tasks Done, discarding reopens them. Numbered pins show on the page.
