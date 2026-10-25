@@ -459,7 +459,7 @@ class Controller {
 		if ( null === $registry ) {
 			return new \WP_Error( 'gama_ai_no_registry', 'Avada element settings for this version are not known yet. Open any page in Avada Builder once.', [ 'status' => 409 ] );
 		}
-		$compiler   = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ] );
+		$compiler   = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ], [ $this, 'image_id' ] );
 		$operations = $request['operations'];
 		try {
 			$draft_id = $this->drafts->edit_draft(
@@ -553,7 +553,7 @@ class Controller {
 			return $result + [ 'draft_id' => $draft_id ];
 		}
 
-		$compiler = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ] );
+		$compiler = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ], [ $this, 'image_url' ], [ $this, 'image_id' ] );
 		try {
 			$draft_id = $this->drafts->edit_draft(
 				$page_id,
@@ -706,6 +706,21 @@ class Controller {
 		}
 		$url = wp_get_attachment_url( (int) $id );
 		return $url ? (string) $url : null;
+	}
+
+	/**
+	 * Media library id of an image URL, or null. Also finds resized copies
+	 * such as photo-300x200.jpg.
+	 *
+	 * @param string $url Image URL.
+	 * @return int|null
+	 */
+	public function image_id( $url ) {
+		$id = attachment_url_to_postid( (string) $url );
+		if ( ! $id ) {
+			$id = attachment_url_to_postid( (string) preg_replace( '/-\d+x\d+(?=\.[a-z0-9]+$)/i', '', (string) $url ) );
+		}
+		return $id && wp_attachment_is_image( $id ) ? (int) $id : null;
 	}
 
 	/**

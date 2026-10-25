@@ -110,7 +110,10 @@ class EditCompilerTest extends TestCase {
 		$media = function ( $id ) {
 			return 87 === $id ? 'https://example.com/award.jpg' : null;
 		};
-		return ( new EditCompiler( $this->registry(), null, null, $media ) )->apply( self::PAGE, $operations );
+		$ids   = function ( $url ) {
+			return 'https://example.com/award.jpg' === $url ? 87 : null;
+		};
+		return ( new EditCompiler( $this->registry(), null, null, $media, $ids ) )->apply( self::PAGE, $operations );
 	}
 
 	public function test_setting_an_image_id_shows_that_media_library_image() {
@@ -121,6 +124,23 @@ class EditCompilerTest extends TestCase {
 	public function test_an_inserted_image_gets_its_picture_from_the_id() {
 		$out = $this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '87|full' ] ] ] );
 		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_image_set_by_url_gets_its_media_library_id() {
+		$out = $this->with_media( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://example.com/award.jpg' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+
+		$out = $this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'text' => 'https://example.com/award.jpg' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_image_url_must_be_in_the_media_library() {
+		try {
+			$this->with_media( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://elsewhere.com/x.jpg' ] ] );
+			$this->fail( 'Expected the URL to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'is not in the media library', $e->getMessage() );
+		}
 	}
 
 	public function test_an_image_id_must_be_in_the_media_library() {

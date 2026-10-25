@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.8.1
+Stable tag: 0.8.2
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,9 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.8.2 =
+* Image elements set by URL get the media library id of that image (image_id "ID|full"), because Avada shows an image element without an id as its bare URL text. URLs that are not in the media library are refused instead of breaking the page.
 
 = 0.8.1 =
 * Image elements: setting image_id ("87|full") now also sets the picture to that media library image, as choosing it in Avada Builder does. An id that is not an image in the media library is refused. Fixes broken images in one step.

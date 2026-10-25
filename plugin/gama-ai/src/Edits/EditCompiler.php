@@ -72,6 +72,9 @@ class EditCompiler {
 	/** @var callable(int):(string|null)|null */
 	private $media_url;
 
+	/** @var callable(string):(int|null)|null */
+	private $media_id;
+
 	/** @var \SplObjectStorage Node => parent Node. */
 	private $parents;
 
@@ -101,8 +104,9 @@ class EditCompiler {
 	 * @param callable|null $sanitize_text Cleans element text (HTML allowed), e.g. wp_kses_post.
 	 * @param callable|null $sanitize_attr Cleans a setting value; receives the value and the registry param.
 	 * @param callable|null $media_url     Given a media library id, returns that image's URL or null.
+	 * @param callable|null $media_id      Given an image URL, returns its media library id or null.
 	 */
-	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null, $media_url = null ) {
+	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null, $media_url = null, $media_id = null ) {
 		$identity            = function ( $value ) {
 			return $value;
 		};
@@ -110,6 +114,7 @@ class EditCompiler {
 		$this->sanitize_text = $sanitize_text ? $sanitize_text : $identity;
 		$this->sanitize_attr = $sanitize_attr ? $sanitize_attr : $identity;
 		$this->media_url     = $media_url;
+		$this->media_id      = $media_id;
 	}
 
 	/**
@@ -168,7 +173,9 @@ class EditCompiler {
 		$name = isset( $op['op'] ) ? $op['op'] : '';
 		switch ( $name ) {
 			case 'replace_text':
-				$this->replace_text( $this->target( $op, $ids ), $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) );
+				$node = $this->target( $op, $ids );
+				$this->replace_text( $node, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) );
+				$this->link_media_url( $node );
 				return;
 			case 'set_attribute':
 				$node  = $this->target( $op, $ids );
@@ -254,8 +261,10 @@ class EditCompiler {
 			$node->children[] = Node::text( $this->clean_content( $type, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
 		}
 
-		if ( ! isset( $op['text'] ) || isset( $checked['image_id'] ) ) {
+		if ( isset( $checked['image_id'] ) ) {
 			$this->link_media( $node );
+		} elseif ( isset( $op['text'] ) ) {
+			$this->link_media_url( $node );
 		}
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
@@ -582,6 +591,30 @@ class EditCompiler {
 			throw new EditException( 'There is no image with id ' . $m[1] . ' in the media library.' );
 		}
 		$node->children = [ Node::text( $this->clean_content( $node->name, $url ) ) ];
+	}
+
+	/**
+	 * The other direction of link_media(): an image element whose picture
+	 * was set by URL gets that image's media library id. Avada Builder
+	 * shows an image element without an id as its bare URL, so a URL that
+	 * is not in the media library is refused.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 * @throws EditException When the URL is not a media library image.
+	 */
+	private function link_media_url( Node $node ) {
+		$params = $this->registry->params( $node->name );
+		if ( null === $this->media_id || ! isset( $params['element_content'], $params['image_id'] )
+			|| ! in_array( $params['element_content']['type'], self::URL_TYPES, true ) ) {
+			return;
+		}
+		$url = trim( isset( $node->children[0] ) ? $node->children[0]->raw : '' );
+		$id  = call_user_func( $this->media_id, $url );
+		if ( ! is_int( $id ) || $id < 1 ) {
+			throw new EditException( 'The image ' . $url . ' is not in the media library. Use an image from the media library by its id (image_id "ID|full").' );
+		}
+		$node->set_attr( 'image_id', $id . '|full' );
 	}
 
 	/**
