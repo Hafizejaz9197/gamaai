@@ -78,29 +78,39 @@ class PageModel {
 	private function children( Node $node, $prefix ) {
 		$out = [];
 		foreach ( $node->shortcode_children() as $i => $child ) {
-			$id    = '' === $prefix ? (string) $i : $prefix . '.' . $i;
-			$entry = [
-				'id'   => $id,
-				'type' => $child->name,
-			];
-
-			$attrs = $this->attrs( $child );
-			if ( $attrs ) {
-				$entry['attrs'] = $attrs;
-			}
-
-			$text = $this->text( $child );
-			if ( '' !== $text ) {
-				$entry['text'] = $text;
-			}
-
-			$nested = $this->children( $child, $id );
-			if ( $nested ) {
-				$entry['children'] = $nested;
-			}
-			$out[] = $entry;
+			$out[] = $this->entry( $child, '' === $prefix ? (string) $i : $prefix . '.' . $i );
 		}
 		return $out;
+	}
+
+	/**
+	 * Outline one element and everything in it, keeping its page-wide id.
+	 *
+	 * @param Node   $node Shortcode node.
+	 * @param string $id   Its path id.
+	 * @return array<string,mixed>
+	 */
+	public function entry( Node $node, $id ) {
+		$entry = [
+			'id'   => $id,
+			'type' => $node->name,
+		];
+
+		$attrs = $this->attrs( $node );
+		if ( $attrs ) {
+			$entry['attrs'] = $attrs;
+		}
+
+		$text = $this->text( $node );
+		if ( '' !== $text ) {
+			$entry['text'] = $text;
+		}
+
+		$nested = $this->children( $node, $id );
+		if ( $nested ) {
+			$entry['children'] = $nested;
+		}
+		return $entry;
 	}
 
 	/**

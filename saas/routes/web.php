@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountController;
+use App\Http\Controllers\Admin\AiSettingsController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\LedgerController;
 use App\Http\Controllers\Admin\LoginController;
@@ -19,6 +20,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::post('logout', [LoginController::class, 'destroy'])->name('logout');
         Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
         Route::get('ledger', [LedgerController::class, 'index'])->name('ledger');
+        Route::get('ai', [AiSettingsController::class, 'edit'])->name('ai');
+        Route::put('ai', [AiSettingsController::class, 'update'])->name('ai.update');
+        Route::post('ai/test', [AiSettingsController::class, 'test'])->middleware('throttle:5,1')->name('ai.test');
+        Route::post('ai/models', [AiSettingsController::class, 'models'])->middleware('throttle:10,1')->name('ai.models');
         Route::post('accounts', [AccountController::class, 'store'])->name('accounts.store');
         Route::get('accounts/{account}', [AccountController::class, 'show'])->name('accounts.show');
         Route::put('accounts/{account}', [AccountController::class, 'update'])->name('accounts.update');

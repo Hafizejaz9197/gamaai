@@ -6,10 +6,13 @@ use Anthropic\Client;
 use App\Services\Ai\AnthropicEditPlanner;
 use App\Services\Ai\EditPlanner;
 use App\Services\Ai\EditPlannerException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class AnthropicEditPlannerTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_parse_turns_attribute_pairs_into_an_object(): void
     {
         [$summary, $operations] = AnthropicEditPlanner::parse(json_encode([
@@ -50,7 +53,7 @@ class AnthropicEditPlannerTest extends TestCase
         $schema = AnthropicEditPlanner::schema();
 
         $this->assertFalse($schema['additionalProperties']);
-        $this->assertCount(5, $schema['properties']['operations']['items']['anyOf']);
+        $this->assertCount(6, $schema['properties']['operations']['items']['anyOf']);
         foreach ($schema['properties']['operations']['items']['anyOf'] as $variant) {
             $this->assertFalse($variant['additionalProperties']);
             $this->assertContains('op', $variant['required']);

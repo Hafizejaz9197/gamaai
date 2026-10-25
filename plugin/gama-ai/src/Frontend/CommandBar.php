@@ -7,6 +7,7 @@
 
 namespace GamaAI\Frontend;
 
+use GamaAI\Avada\ShortcodeParser;
 use GamaAI\Compatibility;
 use GamaAI\Drafts\DraftManager;
 use GamaAI\Saas\SaasClient;
@@ -121,8 +122,38 @@ class CommandBar {
 			'onDraft'    => $on_draft,
 			'canPublish' => current_user_can( 'publish_pages' ),
 			'problem'    => $this->problem( $report ),
+			// The picker only works when the page on screen is the layout edits change.
+			'containers' => ( $on_draft || ! $draft_id ) ? self::rendered_containers( $post->post_content ) : null,
 		];
 		return $cache;
+	}
+
+	/**
+	 * Path ids of the top-level containers Avada renders, in page order, so
+	 * the bar can tell which container on screen is which. Containers set to
+	 * Draft are not rendered and are skipped. Null when a container is
+	 * scheduled (rendering then depends on the date) or the page has content
+	 * outside containers, because the order on screen may then differ.
+	 *
+	 * @param string $content Layout markup.
+	 * @return string[]|null
+	 */
+	public static function rendered_containers( $content ) {
+		$ids = [];
+		foreach ( ( new ShortcodeParser() )->parse( $content )->shortcode_children() as $i => $node ) {
+			if ( 'fusion_builder_container' !== $node->name ) {
+				return null;
+			}
+			$status = isset( $node->attrs['status'] ) ? $node->attrs['status'] : '';
+			if ( 'draft' === $status ) {
+				continue;
+			}
+			if ( '' !== $status && 'published' !== $status ) {
+				return null;
+			}
+			$ids[] = (string) $i;
+		}
+		return $ids;
 	}
 
 	/**

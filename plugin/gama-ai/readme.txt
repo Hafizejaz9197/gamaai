@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 0.6.0
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,17 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.6.0 =
+* Fewer AI tokens per edit. Requests send only the settings the instruction names (a container alone has about 180 settings) and, when a section is picked or named, only that container.
+* Delete, duplicate, hide and show with a clear target ("delete the second container", "hide this section on mobile") run without the AI and cost no tokens. When the target is unclear, the bar asks which one instead of guessing.
+* "Pick a section" in the command bar: click a section on the page to work on only that part.
+* "Undo last change" in the draft, step by step (up to 10 changes).
+* Rate limits: the bar says how long to wait and offers Try again after the wait. Nothing is sent again automatically.
+* New operation duplicate_element. GET /gama-ai/v1/pages/{id}/ai-context shows what a request would send and its size, without sending it. POST /gama-ai/v1/drafts/{id}/undo.
+
+= 0.5.1 =
+* The command bar explains a timeout (502/504) instead of showing "Something went wrong".
 
 = 0.5.0 =
 * Command bar on pages for users who can edit them: describe a change, see what the AI did and what it cost, then preview, publish, discard or undo. It also shows on the draft preview.

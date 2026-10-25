@@ -155,6 +155,19 @@ class EditCompilerTest extends TestCase {
 		$this->assertStringContainsString( 'Hello', $out );
 	}
 
+	public function test_duplicate_element_keeps_the_original_markup_and_can_be_moved() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'duplicate_element', 'target' => '0.0.0.0' ],
+				[ 'op' => 'replace_text', 'target' => '0.0.0.0', 'text' => 'Changed original' ],
+			]
+		);
+		$this->assertStringContainsString( '[fusion_title size="2"]Changed original[/fusion_title][fusion_title size="2"]Hello[/fusion_title][fusion_text]Intro', $out );
+
+		$whole = $this->apply( [ [ 'op' => 'duplicate_element', 'target' => '0' ] ] );
+		$this->assertSame( self::PAGE . self::PAGE, $whole );
+	}
+
 	public function test_move_element_within_its_parent() {
 		$out = $this->apply( [ [ 'op' => 'move_element', 'target' => '0.0.1', 'index' => 0 ] ] );
 		$this->assertLessThan( strpos( $out, 'fusion_title' ), strpos( $out, 'fusion_imageframe' ) );

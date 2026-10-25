@@ -68,19 +68,25 @@ class SaasClient {
 	 * @param string                              $instruction The site owner's request.
 	 * @param array<int,array<string,mixed>>      $sections    Page model.
 	 * @param array<string,array<string,mixed>>   $elements    Element settings.
+	 * @param string|null                         $scope       Which part of the page $sections is, when not all of it.
+	 * @param array<string,mixed>                 $stats       Context sizes, logged by the service.
 	 * @return array<string,mixed> summary, operations, usage.
 	 * @throws SaasException When the service refuses or cannot be reached.
 	 */
-	public function request_edit( $page_id, $instruction, array $sections, array $elements ) {
-		return $this->post_json(
-			'/api/v1/site/edit-requests',
-			[
-				'page_id'     => (int) $page_id,
-				'instruction' => (string) $instruction,
-				'sections'    => $sections,
-				'elements'    => (object) $elements,
-			]
-		);
+	public function request_edit( $page_id, $instruction, array $sections, array $elements, $scope = null, array $stats = [] ) {
+		$body = [
+			'page_id'     => (int) $page_id,
+			'instruction' => (string) $instruction,
+			'sections'    => $sections,
+			'elements'    => (object) $elements,
+		];
+		if ( null !== $scope ) {
+			$body['scope'] = (string) $scope;
+		}
+		if ( $stats ) {
+			$body['context_stats'] = $stats;
+		}
+		return $this->post_json( '/api/v1/site/edit-requests', $body );
 	}
 
 	/**
@@ -138,7 +144,12 @@ class SaasClient {
 		}
 
 		$message = is_array( $data ) && isset( $data['message'] ) && is_string( $data['message'] ) ? $data['message'] : 'The Gama AI service returned an error.';
-		$extra   = is_array( $data ) && isset( $data['usage'] ) ? [ 'usage' => $data['usage'] ] : [];
+		$extra   = [];
+		foreach ( [ 'usage', 'retry_after' ] as $key ) {
+			if ( is_array( $data ) && isset( $data[ $key ] ) ) {
+				$extra[ $key ] = $data[ $key ];
+			}
+		}
 		if ( 401 === $code ) {
 			$status = 409; // The site token is wrong: a setup problem on this site, not the caller's.
 		} elseif ( in_array( $code, [ 402, 413, 422, 429 ], true ) ) {

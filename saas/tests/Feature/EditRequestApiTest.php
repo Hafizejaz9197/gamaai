@@ -75,6 +75,50 @@ class EditRequestApiTest extends TestCase
         $this->assertSame(['reserve', 'release'], UsageEntry::orderBy('id')->pluck('kind')->all());
     }
 
+    public function test_rate_limit_returns_429_with_the_wait_and_releases_the_reservation(): void
+    {
+        [, $token] = $this->site(budget: 10_000);
+        $this->fake(new EditPlannerException('The AI service is busy. Try again in 20 seconds.', rateLimited: true, retryAfter: 20, attempts: 2));
+
+        $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY)
+            ->assertStatus(429)
+            ->assertHeader('Retry-After', '20')
+            ->assertJsonPath('retry_after', 20)
+            ->assertJsonPath('message', 'The AI service is busy. Try again in 20 seconds.');
+
+        $release = UsageEntry::where('kind', 'release')->sole();
+        $this->assertSame(['status' => 'rate_limited', 'attempts' => 2, 'retry_after' => 20], array_intersect_key($release->meta, array_flip(['status', 'attempts', 'retry_after'])));
+    }
+
+    public function test_records_context_size_estimate_and_output_cap_with_the_usage(): void
+    {
+        [, $token] = $this->site(budget: 100_000);
+        $planner = $this->fake(new EditPlan('ok', [], 'test-model', 300, 40, attempts: 2), estimate: 5_000);
+
+        $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY + [
+            'scope' => 'Only the 2nd container of 3 is shown.',
+            'context_stats' => ['settings_count' => 2, 'element_types' => 1, 'focus' => '1', 'anything_else' => 'dropped'],
+        ])
+            ->assertOk()
+            ->assertJsonPath('usage.estimated_tokens', 5_000)
+            ->assertJsonPath('usage.max_output_tokens', 4096)
+            ->assertJsonPath('usage.input_tokens', 300)
+            ->assertJsonPath('usage.output_tokens', 40);
+
+        $this->assertSame('Only the 2nd container of 3 is shown.', $planner->calls[0][3]);
+        $reserve = UsageEntry::where('kind', 'reserve')->sole()->meta;
+        $this->assertSame(5_000, $reserve['estimated_tokens']);
+        $this->assertSame(4096, $reserve['max_output_tokens']);
+        $this->assertTrue($reserve['scope']);
+        $this->assertSame(2, $reserve['settings_count']);
+        $this->assertArrayNotHasKey('anything_else', $reserve);
+        $this->assertGreaterThan(0, $reserve['context_bytes']);
+        $settle = UsageEntry::where('kind', 'settle')->sole()->meta;
+        $this->assertSame('ok', $settle['status']);
+        $this->assertSame(2, $settle['attempts']);
+        $this->assertArrayHasKey('duration_ms', $settle);
+    }
+
     public function test_charged_failure_is_still_settled(): void
     {
         [$site, $token] = $this->site(budget: 10_000);

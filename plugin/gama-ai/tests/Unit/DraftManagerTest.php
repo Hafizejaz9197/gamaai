@@ -152,4 +152,42 @@ class DraftManagerTest extends TestCase {
 		$this->expectException( DraftException::class );
 		$this->drafts->discard( $this->page );
 	}
+
+	public function test_each_draft_change_can_be_undone_and_publish_leaves_the_undo_steps_behind() {
+		$set = function ( $text ) {
+			return function ( $content ) use ( $text ) {
+				return preg_replace( '/\](\w+)\[/', ']' . $text . '[', $content );
+			};
+		};
+		$draft = $this->drafts->edit_draft( $this->page, $set( 'Mid' ) );
+		$this->drafts->edit_draft( $this->page, $set( 'New' ) );
+		$this->drafts->edit_draft( $this->page, $set( 'New' ) ); // No change, no undo step.
+		$this->assertCount( 2, $this->drafts->undo_steps( $draft ) );
+
+		$this->assertSame( 1, $this->drafts->undo_draft_change( $draft ) );
+		$this->assertStringContainsString( ']Mid[', $this->store->get( $draft )['content'] );
+		$this->assertSame( self::LIVE, $this->store->get( $this->page )['content'] );
+
+		$this->drafts->publish( $draft, 7 );
+		$this->assertArrayNotHasKey( DraftManager::META_UNDO, $this->store->get_meta( $this->page ) );
+	}
+
+	public function test_undo_keeps_a_limited_number_of_steps_and_says_when_none_are_left() {
+		$draft = $this->drafts->create_draft( $this->page );
+		for ( $i = 0; $i < DraftManager::UNDO_STEPS + 3; $i++ ) {
+			$this->drafts->edit_draft(
+				$this->page,
+				function () use ( $i ) {
+					return '[fusion_text]' . $i . '[/fusion_text]';
+				}
+			);
+		}
+		$this->assertCount( DraftManager::UNDO_STEPS, $this->drafts->undo_steps( $draft ) );
+
+		for ( $i = 0; $i < DraftManager::UNDO_STEPS; $i++ ) {
+			$this->drafts->undo_draft_change( $draft );
+		}
+		$this->expectException( DraftException::class );
+		$this->drafts->undo_draft_change( $draft );
+	}
 }

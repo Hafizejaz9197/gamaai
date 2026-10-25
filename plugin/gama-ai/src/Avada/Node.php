@@ -105,4 +105,20 @@ class Node {
 		$this->attrs[ $key ] = (string) $value;
 		$this->dirty         = true;
 	}
+
+	/**
+	 * A copy of this node and everything in it.
+	 *
+	 * @return Node
+	 */
+	public function deep_copy() {
+		$copy           = clone $this;
+		$copy->children = array_map(
+			function ( Node $child ) {
+				return $child->deep_copy();
+			},
+			$this->children
+		);
+		return $copy;
+	}
 }
