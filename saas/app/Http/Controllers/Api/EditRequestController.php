@@ -12,6 +12,7 @@ use App\Services\Usage\BudgetExceeded;
 use App\Services\Usage\UsageMeter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -34,7 +35,10 @@ class EditRequestController extends Controller
             'instruction' => ['required', 'string', 'max:2000'],
             'sections' => ['present', 'array'],
             'elements' => ['present', 'array'],
+            'scope' => ['nullable', 'string', 'max:300'],
+            'context_stats' => ['nullable', 'array'],
         ]);
+        $scope = $data['scope'] ?? null;
         $context = (string) json_encode([$data['sections'], $data['elements']]);
         if (strlen($context) > config('gama.ai.max_context_bytes')) {
             return response()->json(['message' => 'This page is too large for one AI edit.'], 413);
@@ -42,30 +46,73 @@ class EditRequestController extends Controller
 
         /** @var Site $site */
         $site = $request->attributes->get('site');
-        $estimate = $this->planner->estimateTokens($data['instruction'], $data['sections'], $data['elements']);
+        $estimate = $this->planner->estimateTokens($data['instruction'], $data['sections'], $data['elements'], $scope);
+        // What was sent and why it costs what it does, kept with the ledger row and in the log.
+        $details = [
+            'page_id' => $data['page_id'],
+            'context_bytes' => strlen($context),
+            'page_bytes' => strlen((string) json_encode($data['sections'])),
+            'settings_bytes' => strlen((string) json_encode($data['elements'])),
+            'scope' => $scope !== null,
+            'estimated_tokens' => $estimate,
+            'max_output_tokens' => $this->planner->maxOutputTokens(),
+        ] + array_intersect_key($data['context_stats'] ?? [], array_flip(['settings_count', 'element_types', 'focus']));
 
         try {
-            $requestId = $this->meter->reserve($site->account, $site, $estimate, 'small_edit', ['page_id' => $data['page_id']]);
+            $requestId = $this->meter->reserve($site->account, $site, $estimate, 'small_edit', $details);
         } catch (BudgetExceeded $e) {
+            Log::info('gama.edit_request', $details + ['site_id' => $site->id, 'status' => 'budget_exceeded']);
+
             return response()->json(['message' => $e->getMessage(), 'usage' => $this->meter->summary($site->account)->toArray()], 402);
         }
 
+        $started = hrtime(true);
         try {
-            $plan = $this->planner->plan($data['instruction'], $data['sections'], $data['elements']);
+            $plan = $this->planner->plan($data['instruction'], $data['sections'], $data['elements'], $scope);
         } catch (EditPlannerException $e) {
+            $outcome = [
+                'status' => $e->rateLimited ? 'rate_limited' : 'failed',
+                'attempts' => $e->attempts,
+                'retry_after' => $e->retryAfter,
+                'duration_ms' => $this->since($started),
+            ];
             if ($e->plan !== null) {
-                $this->settle($requestId, $e->plan);
+                $this->settle($requestId, $e->plan, $outcome);
             } else {
-                $this->meter->release($requestId);
+                // Nothing was charged: the provider refused the call or never got it.
+                $this->meter->release($requestId, $outcome);
+            }
+            Log::info('gama.edit_request', $details + $outcome + [
+                'site_id' => $site->id,
+                'request_id' => $requestId,
+                'input_tokens' => $e->plan?->inputTokens,
+                'output_tokens' => $e->plan?->outputTokens,
+            ]);
+
+            if ($e->rateLimited) {
+                $retryAfter = $e->retryAfter ?? 60;
+
+                return response()->json(['message' => $e->getMessage(), 'retry_after' => $retryAfter], 429)
+                    ->header('Retry-After', (string) $retryAfter);
             }
 
             return response()->json(['message' => $e->getMessage()], 502);
         } catch (Throwable $e) {
-            $this->meter->release($requestId);
+            $this->meter->release($requestId, ['status' => 'error', 'duration_ms' => $this->since($started)]);
             throw $e;
         }
 
-        $entry = $this->settle($requestId, $plan);
+        $outcome = ['status' => 'ok', 'attempts' => $plan->attempts, 'duration_ms' => $this->since($started)];
+        $entry = $this->settle($requestId, $plan, $outcome);
+        Log::info('gama.edit_request', $details + $outcome + [
+            'site_id' => $site->id,
+            'request_id' => $requestId,
+            'model' => $plan->model,
+            'input_tokens' => $plan->inputTokens,
+            'output_tokens' => $plan->outputTokens,
+            'cache_read_tokens' => $plan->cacheReadTokens,
+            'operations' => count($plan->operations),
+        ]);
 
         return response()->json([
             'request_id' => $requestId,
@@ -74,13 +121,20 @@ class EditRequestController extends Controller
             'usage' => [
                 'model' => $plan->model,
                 'tokens' => $entry->tokens,
+                'input_tokens' => $plan->inputTokens + $plan->cacheReadTokens + $plan->cacheWriteTokens,
+                'output_tokens' => $plan->outputTokens,
+                'estimated_tokens' => $estimate,
+                'max_output_tokens' => $details['max_output_tokens'],
                 'estimated_cost_micros' => $entry->estimated_cost_micros,
                 'account' => $this->meter->summary($site->account)->toArray(),
             ],
         ]);
     }
 
-    private function settle(string $requestId, EditPlan $plan): UsageEntry
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function settle(string $requestId, EditPlan $plan, array $meta = []): UsageEntry
     {
         return $this->meter->settle(
             $requestId,
@@ -89,6 +143,12 @@ class EditRequestController extends Controller
             $plan->outputTokens,
             cacheWriteTokens: $plan->cacheWriteTokens,
             cacheReadTokens: $plan->cacheReadTokens,
+            meta: $meta,
         );
+    }
+
+    private function since(int $started): int
+    {
+        return intdiv(hrtime(true) - $started, 1_000_000);
     }
 }

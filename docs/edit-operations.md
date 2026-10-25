@@ -35,6 +35,7 @@ operation it returns 400 with the failing operation's index in
 | `insert_element` | `parent`, `type`, optional `index`, `attrs`, `text` | Adds an element. `parent` is `""` for the page root. Containers go in the root, rows in containers, columns in rows, nested rows in columns, nested columns in nested rows, and every other element in a column. Settings that are left out use Avada's defaults. Without `index` the element is added last. |
 | `remove_element` | `target` | Removes an element and everything in it. |
 | `move_element` | `target`, `index` | Moves an element to another position in the same parent. This covers `move_section` from the architecture plan. |
+| `duplicate_element` | `target` | Copies an element with everything in it and places the copy right after it. `id` and `menu_anchor` settings are cleared in the copy, because HTML ids must be unique. |
 
 `build_section` (a full new section from a design brief) is Phase 4.
 

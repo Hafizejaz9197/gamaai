@@ -5,7 +5,7 @@
 	if (!cfg) {
 		return;
 	}
-	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false };
+	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false, target: null, undoSteps: 0, retryTimer: null };
 
 	function el(tag, attrs, children) {
 		var node = document.createElement(tag);
@@ -40,6 +40,7 @@
 						message = 'The AI took too long to answer, so the server stopped waiting. It may still finish: reload the preview in a minute. If this keeps happening, choose a faster AI model.';
 					}
 					var error = new Error(message || 'Something went wrong (' + response.status + ').');
+					error.status = response.status;
 					error.data = data.data || {};
 					throw error;
 				}
@@ -64,13 +65,16 @@
 	});
 	var send = el('button', { class: 'g-btn', type: 'button', text: 'Make changes' });
 	var hint = el('span', { class: 'g-hint', text: 'Changes go to a draft first.' });
+	var pick = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Pick a section', hidden: '' });
+	var picked = el('p', { class: 'g-hint g-picked', hidden: '' });
 	var result = el('div', { class: 'g-result', role: 'status', 'aria-live': 'polite', hidden: '' });
 	var panel = el('div', { id: 'gama-ai-panel', role: 'dialog', 'aria-label': 'Gama AI', hidden: '' }, [
 		el('div', { class: 'g-head' }, [el('strong', { text: 'Gama AI' }), close]),
 		note,
 		el('label', { for: 'gama-ai-instruction', class: 'g-hint', text: 'Describe the change in plain words.' }),
 		input,
-		el('div', { class: 'g-row' }, [send, hint]),
+		picked,
+		el('div', { class: 'g-row' }, [send, pick, hint]),
 		result
 	]);
 
@@ -125,6 +129,9 @@
 		if (cfg.canPublish && state.draftId) {
 			actions.push(button('Publish', publish));
 		}
+		if (state.draftId && state.undoSteps > 0) {
+			actions.push(button('Undo last change', undoChange, true));
+		}
 		if (state.draftId) {
 			actions.push(button('Discard', discard, true));
 		}
@@ -147,25 +154,166 @@
 		return { cls: 'g-cost', text: 'Used ' + usage.tokens.toLocaleString() + ' tokens (about ' + usd(usage.estimated_cost_micros || 0) + ').' };
 	}
 
+	// Section picker. Avada renders each top-level container as a
+	// .fusion-fullwidth box in the post content; cfg.containers lists their
+	// ids in the same order, or is null when the order cannot be trusted.
+	function sectionBoxes() {
+		var holders = document.querySelectorAll('.post-content');
+		for (var i = 0; i < holders.length; i++) {
+			var boxes = Array.prototype.filter.call(holders[i].children, function (child) {
+				return child.classList.contains('fusion-fullwidth');
+			});
+			if (boxes.length) {
+				return boxes;
+			}
+		}
+		return [];
+	}
+
+	function canPick() {
+		return !!(cfg.containers && cfg.containers.length > 1 && sectionBoxes().length === cfg.containers.length);
+	}
+
+	function renderPicked() {
+		picked.textContent = '';
+		picked.hidden = !state.target;
+		if (state.target) {
+			picked.appendChild(document.createTextNode('Working on ' + state.target.label + ' only. '));
+			picked.appendChild(button('Clear', function () {
+				setTarget(null);
+			}, true));
+		}
+		pick.hidden = !canPick() || !!cfg.problem;
+	}
+
+	function setTarget(target) {
+		state.target = target;
+		sectionBoxes().forEach(function (box) {
+			box.classList.remove('gama-ai-picked');
+		});
+		if (target) {
+			target.box.classList.add('gama-ai-picked');
+		}
+		renderPicked();
+	}
+
+	function startPicking() {
+		var boxes = sectionBoxes();
+		if (!canPick()) {
+			return;
+		}
+		panel.hidden = true;
+		document.body.classList.add('gama-ai-picking');
+		var tip = el('div', { id: 'gama-ai-tip', text: 'Click the section to work on. Press Esc to cancel.' });
+		document.body.appendChild(tip);
+
+		function stop() {
+			document.body.classList.remove('gama-ai-picking');
+			tip.remove();
+			boxes.forEach(function (box) {
+				box.removeEventListener('click', choose, true);
+			});
+			document.removeEventListener('keydown', onKey, true);
+			panel.hidden = false;
+		}
+		function choose(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			var index = boxes.indexOf(event.currentTarget);
+			stop();
+			setTarget({ id: cfg.containers[index], box: boxes[index], label: 'section ' + (index + 1) });
+			input.focus();
+		}
+		function onKey(event) {
+			if (event.key === 'Escape') {
+				stop();
+			}
+		}
+		boxes.forEach(function (box) {
+			box.addEventListener('click', choose, true);
+		});
+		document.addEventListener('keydown', onKey, true);
+	}
+
+	// After a change the page on screen no longer matches the draft, so ids
+	// from the picker could point at the wrong section until it is reloaded.
+	function stopPickingUntilReload() {
+		setTarget(null);
+		cfg.containers = null;
+		renderPicked();
+	}
+
+	function contextLine(context) {
+		if (!context || typeof context.page_bytes !== 'number') {
+			return null;
+		}
+		var bytes = context.page_bytes + context.settings_bytes;
+		return {
+			cls: 'g-cost',
+			text: 'Sent ' + (bytes / 1024).toFixed(1) + ' KB of page context (' + (context.scope !== null && context.scope !== undefined ? 'one section' : 'whole page') + ', ' + context.settings_count + ' settings).'
+		};
+	}
+
+	function retryLater(seconds) {
+		clearInterval(state.retryTimer);
+		var left = Math.max(1, Math.ceil(seconds));
+		var again = button('Try again in ' + left + 's', edit);
+		again.disabled = true;
+		result.appendChild(el('div', { class: 'g-row' }, [again]));
+		state.retryTimer = setInterval(function () {
+			left -= 1;
+			if (left <= 0) {
+				clearInterval(state.retryTimer);
+				again.disabled = false;
+				again.textContent = 'Try again';
+				return;
+			}
+			again.textContent = 'Try again in ' + left + 's';
+		}, 1000);
+	}
+
+	function undoChange() {
+		if (state.busy || !state.draftId) {
+			return;
+		}
+		setBusy(true, 'Undoing\u2026');
+		api('drafts/' + state.draftId + '/undo').then(function (data) {
+			setBusy(false);
+			state.undoSteps = data.undo_steps;
+			stopPickingUntilReload();
+			show('ok', ['Undid the last change in the draft. The live page did not change.'], draftActions());
+		}, failed);
+	}
+
 	function edit() {
 		var instruction = input.value.trim();
 		if (!instruction || state.busy) {
 			return;
 		}
-		setBusy(true, 'Working\u2026 up to a minute');
-		show('ok', ['Asking the AI and checking its changes\u2026']);
-		api('pages/' + cfg.pageId + '/ai-edit', { instruction: instruction }).then(function (data) {
+		clearInterval(state.retryTimer);
+		setBusy(true, 'Working\u2026');
+		show('ok', ['Checking the request\u2026']);
+		var body = { instruction: instruction };
+		if (state.target) {
+			body.target = state.target.id;
+		}
+		api('pages/' + cfg.pageId + '/ai-edit', body).then(function (data) {
 			setBusy(false);
+			var how = data.quick
+				? { cls: 'g-cost', text: 'Done without the AI, so no tokens were used.' }
+				: costLine(data.usage);
 			if (!data.operations || !data.operations.length) {
-				show('ok', [data.summary || 'The AI made no changes.', 'Nothing was changed.', costLine(data.usage)], draftActions());
+				show('ok', [data.summary || 'The AI made no changes.', data.quick ? '' : 'Nothing was changed.', how, contextLine(data.context)], draftActions());
 				return;
 			}
 			state.draftId = data.draft_id;
 			state.previewUrl = data.preview_url;
+			state.undoSteps = data.undo_steps || 0;
 			input.value = '';
+			stopPickingUntilReload();
 			renderNote();
 			var count = data.operations.length;
-			show('ok', [data.summary, count + (count === 1 ? ' change' : ' changes') + ' saved to the draft.', costLine(data.usage)], draftActions());
+			show('ok', [data.summary, count + (count === 1 ? ' change' : ' changes') + ' saved to the draft.', how, contextLine(data.context)], draftActions());
 		}, function (error) {
 			setBusy(false);
 			var lines = [error.message];
@@ -173,7 +321,13 @@
 				lines.push('The AI said: ' + error.data.summary);
 				lines.push('Nothing was changed. Try saying it differently.');
 			}
-			show('error', lines.concat([costLine(error.data && error.data.usage)]), draftActions());
+			if (error.status === 429) {
+				lines.push('Nothing was changed. Your request was not sent again automatically.');
+			}
+			show('error', lines.concat([costLine(error.data && error.data.usage), contextLine(error.data && error.data.context)]), draftActions());
+			if (error.status === 429) {
+				retryLater(error.data && error.data.retry_after ? error.data.retry_after : 30);
+			}
 		});
 	}
 
@@ -243,6 +397,7 @@
 		launch.hidden = false;
 	});
 	send.addEventListener('click', edit);
+	pick.addEventListener('click', startPicking);
 	input.addEventListener('keydown', function (event) {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			edit();
@@ -257,6 +412,7 @@
 			item.addEventListener('click', open);
 		}
 		renderNote();
+		renderPicked();
 		if (cfg.onDraft) {
 			open();
 			show('ok', ['These are the unpublished changes.'], draftActions());

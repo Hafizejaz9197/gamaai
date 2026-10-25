@@ -106,6 +106,22 @@ class AdminDashboardTest extends TestCase
             ->assertSee('1 request released');
     }
 
+    public function test_ledger_explains_context_size_and_rate_limits(): void
+    {
+        [$site] = $this->site(budget: 100_000);
+        $meter = new UsageMeter;
+        $id = $meter->reserve($site->account, $site, 6_000, 'small_edit', ['page_id' => 11, 'context_bytes' => 2_048, 'scope' => true, 'max_output_tokens' => 4096]);
+        $meter->settle($id, 'test-model', 700, 90, meta: ['status' => 'ok', 'attempts' => 2, 'duration_ms' => 1_500]);
+        $meter->release($meter->reserve($site->account, $site, 6_000, 'small_edit'), ['status' => 'rate_limited', 'retry_after' => 30]);
+
+        $this->actingAs($this->admin())->get('/admin/ledger')
+            ->assertOk()
+            ->assertSee('sent 2.0 KB (one section), max answer 4,096')
+            ->assertSee('2 calls.')
+            ->assertSee('1.5s.')
+            ->assertSee('Rate limited, wait 30s');
+    }
+
     public function test_past_months_and_bad_months(): void
     {
         [$site] = $this->site(name: 'Acme');

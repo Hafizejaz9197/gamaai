@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Services\Ai\EditPlannerException;
 use App\Services\Ai\OpenAiCompatibleEditPlanner;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class OpenAiCompatibleEditPlannerTest extends TestCase
@@ -70,7 +72,7 @@ class OpenAiCompatibleEditPlannerTest extends TestCase
 
     public function test_errors_explain_what_went_wrong(): void
     {
-        $cases = [[401, 'did not accept the API key'], [429, 'free limit is used up'], [500, 'returned an error (500']];
+        $cases = [[401, 'did not accept the API key'], [429, 'free limit is used up for now'], [500, 'returned an error (500']];
         $sequence = Http::fakeSequence(self::URL);
         foreach ($cases as [$status]) {
             $sequence->push(['error' => ['message' => 'nope']], $status);
@@ -104,6 +106,83 @@ class OpenAiCompatibleEditPlannerTest extends TestCase
             $this->fail('Expected an error.');
         } catch (EditPlannerException $e) {
             $this->assertSame(1000, $e->plan->inputTokens);
+        }
+    }
+
+    public function test_sends_the_schema_once_and_spells_it_out_only_for_json_mode(): void
+    {
+        Http::fakeSequence(self::URL)
+            ->push(['error' => ['message' => 'json_schema is not supported']], 400)
+            ->push($this->answer('{"summary":"ok","operations":[]}'));
+
+        $this->planner()->plan('x', [], [], 'Only the 2nd container of 3 is shown.');
+
+        $sent = Http::recorded()->map(fn ($pair) => $pair[0]);
+        $this->assertStringNotContainsString('matching this JSON schema', $sent[0]['messages'][0]['content']);
+        $this->assertStringContainsString('matching this JSON schema', $sent[1]['messages'][0]['content']);
+        $this->assertStringContainsString('"scope":"Only the 2nd container of 3 is shown."', $sent[0]['messages'][1]['content']);
+        $this->assertSame(4000, $sent[0]['max_tokens']);
+    }
+
+    public function test_short_rate_limit_is_retried_once_after_the_wait(): void
+    {
+        Sleep::fake();
+        Http::fakeSequence(self::URL)
+            ->push(['error' => ['message' => 'Rate limit reached for model on tokens per minute (TPM): Limit 8000, Used 1606, Requested 7455. Please try again in 6.7s.']], 429)
+            ->push($this->answer('{"summary":"ok","operations":[]}'));
+
+        $plan = $this->planner()->plan('x', [], []);
+
+        $this->assertSame('ok', $plan->summary);
+        $this->assertSame(2, $plan->attempts);
+        Sleep::assertSleptTimes(1);
+        Sleep::assertSequence([Sleep::for(7)->seconds()]);
+    }
+
+    public function test_long_or_repeated_rate_limits_go_back_with_the_wait(): void
+    {
+        Sleep::fake();
+        Http::fakeSequence(self::URL)
+            ->push(['error' => ['message' => 'Rate limit reached. Limit 8000, organization org_secret.']], 429, ['Retry-After' => '45']);
+
+        try {
+            $this->planner()->plan('x', [], []);
+            $this->fail('Expected a rate limit.');
+        } catch (EditPlannerException $e) {
+            $this->assertTrue($e->rateLimited);
+            $this->assertSame(45, $e->retryAfter);
+            $this->assertSame(1, $e->attempts);
+            $this->assertNull($e->plan);
+            $this->assertSame('The AI service is busy or its free limit is used up for now. Try again in 45 seconds.', $e->getMessage());
+            $this->assertStringNotContainsString('org_secret', $e->getMessage());
+        }
+        Sleep::assertNeverSlept();
+    }
+
+    public function test_a_second_rate_limit_is_not_retried_again(): void
+    {
+        Sleep::fake();
+        Http::fakeSequence(self::URL)
+            ->push(['error' => ['message' => 'Please try again in 2s.']], 429)
+            ->push(['error' => ['message' => 'Please try again in 3s.']], 429);
+        try {
+            $this->planner()->plan('x', [], []);
+            $this->fail('Expected a rate limit.');
+        } catch (EditPlannerException $e) {
+            $this->assertSame(2, $e->attempts);
+            $this->assertSame(3, $e->retryAfter);
+        }
+    }
+
+    public function test_connection_failures_are_not_retried(): void
+    {
+        Http::fake(fn () => throw new ConnectionException('timed out'));
+
+        try {
+            $this->planner()->plan('x', [], []);
+            $this->fail('Expected an error.');
+        } catch (EditPlannerException $e) {
+            $this->assertSame(1, $e->attempts);
         }
     }
 }

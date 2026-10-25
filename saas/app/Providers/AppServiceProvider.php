@@ -19,17 +19,15 @@ class AppServiceProvider extends ServiceProvider
         // The provider chosen in the admin dashboard; with none chosen, Claude with the key from .env.
         $this->app->bind(EditPlanner::class, function () {
             $setting = AiSetting::current();
-            $maxTokens = (int) config('gama.ai.max_tokens');
-
             if ($setting?->provider === AiSetting::OPENAI_COMPATIBLE) {
-                return new OpenAiCompatibleEditPlanner((string) $setting->base_url, (string) $setting->api_key, $setting->model, $maxTokens);
+                return new OpenAiCompatibleEditPlanner((string) $setting->base_url, (string) $setting->api_key, $setting->model, (int) config('gama.ai.compat_max_tokens'));
             }
 
             return new AnthropicEditPlanner(
                 new Client(apiKey: (string) ($setting?->api_key ?: config('services.anthropic.key'))),
                 $setting?->model ?: (string) config('gama.ai.model'),
                 (string) config('gama.ai.effort'),
-                $maxTokens,
+                (int) config('gama.ai.max_tokens'),
             );
         });
     }

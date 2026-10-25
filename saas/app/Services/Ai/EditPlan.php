@@ -18,5 +18,6 @@ final class EditPlan
         public readonly int $outputTokens,
         public readonly int $cacheWriteTokens = 0,
         public readonly int $cacheReadTokens = 0,
+        public readonly int $attempts = 1,
     ) {}
 }
