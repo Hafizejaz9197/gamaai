@@ -28,7 +28,7 @@ Operations:
 - set_attribute: set one setting of an element.
 - insert_element: add an element of a listed type to a parent (`parent` "" is the page root), at `index` among the parent's elements, or last when `index` is left out. Give it a `ref` name (such as "s1") to use as the `parent` or `target` of later operations in your list.
 - remove_element: remove an element and everything in it.
-- move_element: move an element to another position in the same parent.
+- move_element: move an element to another position in the same parent (`index` counts the parent's other elements, from 0). To move an element, always use move_element; never remove it and insert a new one.
 - duplicate_element: copy an element with everything in it, placed right after it.
 
 When `media` is given, it lists images from the site's media library. To show one in an image element (fusion_imageframe), set its `image_id` setting to "ID|full", such as "42|full" (set_attribute with name "image_id"); the plugin then shows that media library image. Use only ids listed in `media`. To fix a broken or wrong image, set `image_id` the same way.

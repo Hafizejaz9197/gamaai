@@ -104,6 +104,11 @@ class QuickEdits {
 			return $this->add_section( $add, $root, $selected );
 		}
 
+		$move = self::parse_move( $instruction );
+		if ( null !== $move ) {
+			return $this->move( $move, $root, $selected );
+		}
+
 		$command = $this->parse( $instruction );
 		if ( null === $command ) {
 			return null;
@@ -371,10 +376,10 @@ class QuickEdits {
 		$word  = isset( $target['word'] ) ? $target['word'] : 'element';
 		$count = isset( $target['count'] ) ? (int) $target['count'] : 0;
 		if ( 'element' === $word && 0 === $count ) {
-			return $this->result( 'Pick the part of the page first with "Pick a section", or name it, for example "' . $verb . ' the second container".', [] );
+			return $this->result( 'Pick the part of the page first with "+ Pin", or name it, for example "' . $verb . ' the second container".', [] );
 		}
 		if ( 'ambiguous' === $target['status'] ) {
-			return $this->result( 'This page has ' . $count . ' ' . $word . 's. Say which one, for example "' . $verb . ' the second ' . $word . '" or "' . $verb . ' the last ' . $word . '", or pick it with "Pick a section". Nothing was changed.', [] );
+			return $this->result( 'This page has ' . $count . ' ' . $word . 's. Say which one, for example "' . $verb . ' the second ' . $word . '" or "' . $verb . ' the last ' . $word . '", or pin it with "+ Pin". Nothing was changed.', [] );
 		}
 		return $this->result( 0 === $count ? 'There is no ' . $word . ' like that on this page. Nothing was changed.' : 'This page has only ' . $count . ' ' . $word . ( 1 === $count ? '' : 's' ) . '. Nothing was changed.', [] );
 	}
@@ -409,6 +414,155 @@ class QuickEdits {
 			'name'   => $name,
 			'value'  => $value,
 		];
+	}
+
+	/** Where words for moving an element put it. */
+	const MOVE_PLACES = [
+		'above'         => 'before',
+		'before'        => 'before',
+		'on top of'     => 'before',
+		'over'          => 'before',
+		'below'         => 'after',
+		'after'         => 'after',
+		'under'         => 'after',
+		'underneath'    => 'after',
+		'beneath'       => 'after',
+		'to the top'    => 'first',
+		'to the start'  => 'first',
+		'first'         => 'first',
+		'to the bottom' => 'last',
+		'to the end'    => 'last',
+		'last'          => 'last',
+		'up'            => 'up',
+		'down'          => 'down',
+	];
+
+	/**
+	 * Read "move <element> above|below <element>", "move <element> to the
+	 * top|bottom" and "move <element> up|down". Trailing words such as "of
+	 * this container" only say where both are, so they are dropped.
+	 *
+	 * @param string $instruction Request.
+	 * @return array{target:string,place:string,other:string|null}|null
+	 */
+	public static function parse_move( $instruction ) {
+		$text   = Targets::normalise( $instruction );
+		$places = implode( '|', array_map( 'preg_quote', array_keys( self::MOVE_PLACES ) ) );
+		if ( ! preg_match( '/^(?:move|shift|put|place)\s+(.+?)\s+(' . $places . ')(?:\s+(.+?))?$/u', $text, $m ) ) {
+			return null;
+		}
+		$place = self::MOVE_PLACES[ $m[2] ];
+		$other = isset( $m[3] ) ? trim( (string) preg_replace( '/\s+(?:of|in|inside|within)\s+(?:this|that|the|its|it\'s)\s+(?:container|section|column|row|box)$/u', '', $m[3] ) ) : '';
+		$other = trim( (string) preg_replace( '/^(?:of|in)\s+(?:this|that|the|its)\s+(?:container|section|column|row|box)$/u', '', $other ) );
+		$needs = in_array( $place, [ 'before', 'after' ], true );
+		if ( $needs !== ( '' !== $other ) ) {
+			return null;
+		}
+		return [
+			'target' => $m[1],
+			'place'  => $place,
+			'other'  => '' === $other ? null : $other,
+		];
+	}
+
+	/**
+	 * Move an element within its own column, row or container.
+	 *
+	 * @param array{target:string,place:string,other:string|null} $move     parse_move() result.
+	 * @param Node                                                $root     Parsed page.
+	 * @param string|null                                         $selected Picked element.
+	 * @return array{summary:string,operations:array<int,array<string,mixed>>}|null
+	 */
+	private function move( array $move, Node $root, $selected ) {
+		$targets = new Targets( $root );
+		$target  = $targets->resolve( $move['target'], $selected );
+		if ( 'unknown' === $target['status'] ) {
+			return null;
+		}
+		if ( 'found' !== $target['status'] ) {
+			return $this->no_target( $target, 'move' );
+		}
+		$id     = $target['id'];
+		$dot    = strrpos( $id, '.' );
+		$parent = false === $dot ? '' : substr( $id, 0, $dot );
+		$own    = (int) ( false === $dot ? $id : substr( $id, $dot + 1 ) );
+		$count  = count( ( '' === $parent ? $root : $targets->node( $parent ) )->shortcode_children() );
+
+		if ( 'first' === $move['place'] ) {
+			$index = 0;
+		} elseif ( 'last' === $move['place'] ) {
+			$index = $count - 1;
+		} elseif ( 'up' === $move['place'] ) {
+			$index = max( 0, $own - 1 );
+		} elseif ( 'down' === $move['place'] ) {
+			$index = min( $count - 1, $own + 1 );
+		} else {
+			$other = $this->sibling( $targets, $move['other'], $parent, $id );
+			if ( is_string( $other ) && ! ctype_digit( $other ) ) {
+				return $this->result( $other, [] );
+			}
+			$index = (int) $other;
+			if ( $index > $own ) {
+				--$index; // Positions count without the moved element.
+			}
+			if ( 'after' === $move['place'] ) {
+				++$index;
+			}
+		}
+		if ( $index === $own ) {
+			return $this->result( ucfirst( $target['label'] ) . ' is already there, so nothing was changed.', [] );
+		}
+		return $this->result(
+			'Moved ' . $target['label'] . ( null !== $move['other'] ? ' ' . ( 'before' === $move['place'] ? 'above' : 'below' ) . ' ' . $move['other'] : ( $index < $own ? ' up' : ' down' ) ) . '.',
+			[
+				[
+					'op'     => 'move_element',
+					'target' => $id,
+					'index'  => $index,
+				],
+			]
+		);
+	}
+
+	/**
+	 * The position of the element a phrase names among the moved element's
+	 * siblings, such as "the heading" in the same column.
+	 *
+	 * @param Targets $targets Page targets.
+	 * @param string  $phrase  Phrase.
+	 * @param string  $parent  Parent path id ('' for the page root).
+	 * @param string  $moved   Id of the element being moved.
+	 * @return string Position as digits, or words saying why it is not clear.
+	 */
+	private function sibling( Targets $targets, $phrase, $parent, $moved ) {
+		$words    = implode( '|', array_keys( Targets::WORDS ) );
+		$ordinals = implode( '|', array_keys( Targets::ORDINALS ) );
+		if ( ! preg_match( '/^(?:(?:the|this|that|its)\s+)?(?:(' . $ordinals . '|\d+)(?:st|nd|rd|th)?\s+)?(' . $words . ')s?(?:\s+["\x{201C}\']([^"\x{201D}\']+)["\x{201D}\'])?$/u', $phrase, $m ) ) {
+			return 'Gama AI could not tell which element "' . $phrase . '" is. Name it like "the heading" or "the button".';
+		}
+		$types = Targets::WORDS[ $m[2] ];
+		$found = [];
+		$node  = '' === $parent ? null : $targets->node( $parent );
+		$kids  = null === $node ? [] : $node->shortcode_children();
+		foreach ( $kids as $i => $child ) {
+			$id = ( '' === $parent ? '' : $parent . '.' ) . $i;
+			if ( $id !== $moved && in_array( $child->name, $types, true )
+				&& ( ! isset( $m[3] ) || '' === $m[3] || false !== stripos( $targets->text( $child ), $m[3] ) ) ) {
+				$found[] = $i;
+			}
+		}
+		if ( isset( $m[1] ) && '' !== $m[1] ) {
+			$n     = isset( Targets::ORDINALS[ $m[1] ] ) ? Targets::ORDINALS[ $m[1] ] : (int) $m[1];
+			$pick  = $n < 0 ? count( $found ) + $n : $n - 1;
+			$found = isset( $found[ $pick ] ) ? [ $found[ $pick ] ] : [];
+		}
+		if ( 1 === count( $found ) ) {
+			return (string) $found[0];
+		}
+		if ( ! $found ) {
+			return 'There is no ' . $m[2] . ' next to it in the same ' . ( null === $node ? 'page' : str_replace( 'fusion_builder_', '', $node->name ) ) . '. Gama AI moves elements within their own column for now.';
+		}
+		return 'There are ' . count( $found ) . ' ' . $m[2] . 's next to it. Say which one, for example "the first ' . $m[2] . '".';
 	}
 
 	/**
