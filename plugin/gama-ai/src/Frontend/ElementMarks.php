@@ -118,6 +118,9 @@ class ElementMarks {
 			return $output;
 		}
 		$entry = array_pop( $this->stack );
+		if ( null !== $this->trace && 'fusion_imageframe' === $tag ) {
+			$this->trace[] = 'close ' . $tag . ' ' . $entry['id'] . ': ' . substr( (string) $output, 0, 160 );
+		}
 		if ( null === $entry['id'] || ! is_string( $output ) ) {
 			return $output;
 		}
