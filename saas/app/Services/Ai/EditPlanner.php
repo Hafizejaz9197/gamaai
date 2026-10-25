@@ -11,13 +11,14 @@ interface EditPlanner
      * @param  array<string, array<string, mixed>>  $elements  Settings of the element types the edit may use.
      * @param  string|null  $scope  Which part of the page $sections is, when it is not all of it.
      * @param  list<array{id: int, url: string, title?: string}>  $media  Media library images the request may use.
+     * @param  string|null  $image  A picture the site owner attached to explain the request, as a base64 data URL.
      *
      * @throws EditPlannerException
      */
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): EditPlan;
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): EditPlan;
 
     /** Upper bound of tokens one call may use, for the budget reservation. */
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): int;
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): int;
 
     /** The most output tokens one call may produce (max_tokens). */
     public function maxOutputTokens(): int;

@@ -78,3 +78,7 @@ An element inserted one or two layout levels too high (content into a container 
 ## Images
 
 `fusion_imageframe` keeps its image in `element_content` (setting type `upload`). `replace_text` on it only accepts an `http(s)` URL. Set `image_id` to `"<attachment id>|full"` so Avada Builder shows the picked media library image. AI requests that mention images carry `media`: up to 12 recent media library images (`id`, `url`, `title`).
+
+## Attached pictures
+
+`POST /pages/{id}/ai-edit` takes an optional `image`: a `data:image/(png|jpeg|webp|gif);base64,…` URL of at most 2,000,000 characters (the command bar sends a JPEG of at most 1280 px). It is passed to the service and the AI to explain the request, counted as up to 1,600 input tokens in the estimate, and never stored; the ledger keeps only its size. The AI still answers with the operations above only.

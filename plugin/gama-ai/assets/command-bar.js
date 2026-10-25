@@ -5,7 +5,10 @@
 	if (!cfg) {
 		return;
 	}
-	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false, target: null, undoSteps: 0, retryTimer: null };
+	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false, target: null, undoSteps: 0, retryTimer: null, image: null };
+	// Screenshots are shrunk in the browser before they are sent: the AI
+	// reads a 1280 px image as well as a bigger one, for far fewer tokens.
+	var IMAGE_MAX_SIDE = 1280;
 
 	function el(tag, attrs, children) {
 		var node = document.createElement(tag);
@@ -67,14 +70,18 @@
 	var hint = el('span', { class: 'g-hint', text: 'Changes go to a draft first.' });
 	var pick = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Pick a section', hidden: '' });
 	var picked = el('p', { class: 'g-hint g-picked', hidden: '' });
+	var file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: '' });
+	var attach = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Add image', title: 'Add a screenshot or picture that shows what you mean. You can also paste one into the box.' });
+	var attached = el('div', { class: 'g-attached', hidden: '' });
 	var result = el('div', { class: 'g-result', role: 'status', 'aria-live': 'polite', hidden: '' });
 	var panel = el('div', { id: 'gama-ai-panel', role: 'dialog', 'aria-label': 'Gama AI', hidden: '' }, [
 		el('div', { class: 'g-head' }, [el('strong', { text: 'Gama AI' }), close]),
 		note,
 		el('label', { for: 'gama-ai-instruction', class: 'g-hint', text: 'Describe the change in plain words.' }),
 		input,
+		attached,
 		picked,
-		el('div', { class: 'g-row' }, [send, pick, hint]),
+		el('div', { class: 'g-row' }, [send, pick, attach, file, hint]),
 		result
 	]);
 
@@ -100,6 +107,7 @@
 			note.textContent = 'Visitors see nothing until you publish.';
 		}
 		input.disabled = !!cfg.problem;
+		attach.disabled = !!cfg.problem;
 		send.disabled = !!cfg.problem;
 	}
 
@@ -243,6 +251,44 @@
 		renderPicked();
 	}
 
+	function setImage(dataUrl) {
+		state.image = dataUrl;
+		attached.textContent = '';
+		attached.hidden = !dataUrl;
+		if (dataUrl) {
+			attached.appendChild(el('img', { src: dataUrl, alt: 'Attached image' }));
+			attached.appendChild(el('span', { class: 'g-hint', text: 'The AI will look at this image with your request.' }));
+			attached.appendChild(button('Remove', function () {
+				setImage(null);
+			}, true));
+		}
+	}
+
+	function readImage(blob) {
+		if (!blob || !/^image\//.test(blob.type)) {
+			return;
+		}
+		var url = URL.createObjectURL(blob);
+		var img = new Image();
+		img.onload = function () {
+			var scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+			var canvas = document.createElement('canvas');
+			canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+			canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+			var ctx = canvas.getContext('2d');
+			ctx.fillStyle = '#fff'; // JPEG has no transparency.
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+			URL.revokeObjectURL(url);
+			setImage(canvas.toDataURL('image/jpeg', 0.85));
+		};
+		img.onerror = function () {
+			URL.revokeObjectURL(url);
+			show('error', ['That file could not be read as an image.']);
+		};
+		img.src = url;
+	}
+
 	function contextLine(context) {
 		if (!context || typeof context.page_bytes !== 'number') {
 			return null;
@@ -288,6 +334,9 @@
 	function edit() {
 		var instruction = input.value.trim();
 		if (!instruction || state.busy) {
+			if (!instruction && state.image) {
+				show('error', ['Say in words what to change; the image only shows what you mean.']);
+			}
 			return;
 		}
 		clearInterval(state.retryTimer);
@@ -296,6 +345,9 @@
 		var body = { instruction: instruction };
 		if (state.target) {
 			body.target = state.target.id;
+		}
+		if (state.image) {
+			body.image = state.image;
 		}
 		api('pages/' + cfg.pageId + '/ai-edit', body).then(function (data) {
 			setBusy(false);
@@ -310,6 +362,7 @@
 			state.previewUrl = data.preview_url;
 			state.undoSteps = data.undo_steps || 0;
 			input.value = '';
+			setImage(null);
 			stopPickingUntilReload();
 			renderNote();
 			var count = data.operations.length;
@@ -398,6 +451,33 @@
 	});
 	send.addEventListener('click', edit);
 	pick.addEventListener('click', startPicking);
+	attach.addEventListener('click', function () {
+		file.click();
+	});
+	file.addEventListener('change', function () {
+		readImage(file.files && file.files[0]);
+		file.value = '';
+	});
+	input.addEventListener('paste', function (event) {
+		var items = (event.clipboardData && event.clipboardData.items) || [];
+		for (var i = 0; i < items.length; i++) {
+			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+				event.preventDefault();
+				readImage(items[i].getAsFile());
+				return;
+			}
+		}
+	});
+	input.addEventListener('dragover', function (event) {
+		event.preventDefault();
+	});
+	input.addEventListener('drop', function (event) {
+		var files = event.dataTransfer && event.dataTransfer.files;
+		if (files && files.length && /^image\//.test(files[0].type)) {
+			event.preventDefault();
+			readImage(files[0]);
+		}
+	});
 	input.addEventListener('keydown', function (event) {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			edit();

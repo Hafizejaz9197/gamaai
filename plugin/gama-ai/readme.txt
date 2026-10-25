@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.6.3
+Stable tag: 0.7.0
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,9 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.7.0 =
+* Attach a picture to a request: "Add image" in the Gama AI panel, or paste or drop a screenshot into the box. The picture is shrunk to 1280 px in the browser, sent to the AI with the request, and not saved anywhere. A request with a picture always goes to the AI.
 
 = 0.6.3 =
 * An element put straight into a container (or a column into a container) goes into its row and column, as in Avada Builder. A missing row or full-width column is added; when there are several, the request is refused with a question instead of a guess.

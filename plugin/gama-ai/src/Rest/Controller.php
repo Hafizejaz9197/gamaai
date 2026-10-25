@@ -29,6 +29,9 @@ class Controller {
 
 	const NAMESPACE_V1 = 'gama-ai/v1';
 
+	/** Longest image data URL an AI request takes: about 1.5 MB of picture. */
+	const MAX_IMAGE_LENGTH = 2000000;
+
 	/** @var DraftManager */
 	private $drafts;
 
@@ -144,7 +147,14 @@ class Controller {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'ai_edit' ],
 				'permission_callback' => [ $this, 'can_edit_page' ],
-				'args'                => $id + $edit_request,
+				'args'                => $id + $edit_request + [
+					// A picture that shows what the editor means, shrunk by the command bar. Sent to the AI only; never saved.
+					'image' => [
+						'type'      => 'string',
+						'maxLength' => self::MAX_IMAGE_LENGTH,
+						'pattern'   => '^data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]++={0,2}$',
+					],
+				],
 			]
 		);
 		register_rest_route(
@@ -432,7 +442,9 @@ class Controller {
 		list( $page_id, $root, $registry, $draft_id, $target ) = $page;
 		$instruction = (string) $request['instruction'];
 
-		$quick = ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target );
+		$image = isset( $request['image'] ) && '' !== $request['image'] ? (string) $request['image'] : null;
+		// A request with a picture needs the AI to look at it.
+		$quick = null === $image ? ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target ) : null;
 		if ( null !== $quick ) {
 			$result = $quick + [
 				'quick' => true,
@@ -441,7 +453,7 @@ class Controller {
 		} else {
 			$context = ( new AiContext( $registry, [ $this, 'recent_images' ] ) )->build( $instruction, $root, $target );
 			try {
-				$answer = $this->saas->request_edit( $page_id, $instruction, $context['sections'], $context['elements'], $context['scope'], $context['stats'], $context['media'] );
+				$answer = $this->saas->request_edit( $page_id, $instruction, $context['sections'], $context['elements'], $context['scope'], $context['stats'], $context['media'], $image );
 			} catch ( SaasException $e ) {
 				return new \WP_Error( 'gama_ai_service', $e->getMessage(), [ 'status' => $e->status() ] + $e->data() + [ 'context' => $context['stats'] ] );
 			}

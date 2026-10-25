@@ -132,6 +132,30 @@ class EditRequestApiTest extends TestCase
         $this->assertSame(1, UsageEntry::where('kind', 'reserve')->sole()->meta['media_count']);
     }
 
+    public function test_an_attached_image_reaches_the_planner_but_not_the_ledger(): void
+    {
+        [, $token] = $this->site(budget: 100_000);
+        $planner = $this->fake(new EditPlan('ok', [], 'test-model', 300, 40));
+        $image = 'data:image/jpeg;base64,'.base64_encode('not really a jpeg');
+
+        $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY + ['image' => $image])->assertOk();
+
+        $this->assertSame($image, $planner->calls[0][5]);
+        $meta = UsageEntry::where('kind', 'reserve')->sole()->meta;
+        $this->assertSame(strlen($image), $meta['image_bytes']);
+        $this->assertStringNotContainsString('base64', json_encode($meta));
+    }
+
+    public function test_only_image_data_urls_are_accepted(): void
+    {
+        [, $token] = $this->site(budget: 100_000);
+        $this->fake(new EditPlan('ok', [], 'test-model', 300, 40));
+
+        foreach (['https://example.com/a.jpg', 'data:text/html;base64,PGI+', 'data:image/svg+xml;base64,PHN2Zz4='] as $bad) {
+            $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY + ['image' => $bad])->assertUnprocessable();
+        }
+    }
+
     public function test_media_must_be_web_urls(): void
     {
         [, $token] = $this->site(budget: 100_000);

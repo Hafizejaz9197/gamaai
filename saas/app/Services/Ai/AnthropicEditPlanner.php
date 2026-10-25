@@ -37,6 +37,8 @@ Ids always refer to the page as given, even after earlier operations in your lis
 
 To build a new section, insert a fusion_builder_container at the page root, a fusion_builder_row in it, then one fusion_builder_column per column, setting each column's `type` to its width as a fraction: 1_1 (full), 1_2, 1_3, 2_3, 1_4, 3_4, 1_5, 2_5, 3_5, 4_5, 1_6 or 5_6, adding up to 1 per row. Then put content elements in the columns. Columns inside a column use fusion_builder_row_inner and fusion_builder_column_inner the same way. "Sub containers" or "boxes" side by side usually mean columns. A container or row you leave empty gets one full-width row and column automatically.
 
+The site owner may attach a picture, such as a screenshot or a sketch, that shows what they mean. Use it to understand the request, and still answer only with operations on the page as given. Never put the attached picture itself on the page.
+
 Make the smallest set of operations that does what the site owner asked, and keep the site's existing wording, style and settings unless asked to change them. If the request cannot be done with these operations, or is unclear, return no operations and say why in `summary`. Write `summary` as one or two plain sentences for the site owner, in the language of their request.
 PROMPT;
 
@@ -47,7 +49,7 @@ PROMPT;
         private readonly int $maxTokens,
     ) {}
 
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): EditPlan
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): EditPlan
     {
         try {
             $message = $this->client->beta->messages->create(
@@ -66,6 +68,7 @@ PROMPT;
                             'text' => self::pageText($sections, $elements, $scope, $media),
                             'cacheControl' => ['type' => 'ephemeral'],
                         ],
+                        ...($image !== null ? [self::imageBlock($image)] : []),
                         ['type' => 'text', 'text' => "Site owner's request:\n".$instruction],
                     ],
                 ]],
@@ -124,12 +127,12 @@ PROMPT;
         return $plan($summary, $operations);
     }
 
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): int
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): int
     {
         $input = strlen(self::SYSTEM_PROMPT) + strlen($instruction) + strlen(self::pageText($sections, $elements, $scope, $media));
 
         // About three bytes per token for JSON-heavy input, rounded up, plus the most the answer may use.
-        return intdiv($input, 3) + 1 + $this->maxTokens;
+        return intdiv($input, 3) + 1 + ($image !== null ? self::IMAGE_TOKENS : 0) + $this->maxTokens;
     }
 
     public function maxOutputTokens(): int
@@ -143,6 +146,31 @@ PROMPT;
      * @param  list<array<string, mixed>>  $sections
      * @param  array<string, array<string, mixed>>  $elements
      */
+    /** Input tokens one attached picture costs at most, for estimates. A 1280 px wide screenshot is about 1,200 to 1,600. */
+    public const IMAGE_TOKENS = 1_600;
+
+    /**
+     * The media type and base64 data of a data URL.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function imageParts(string $dataUrl): array
+    {
+        if (! preg_match('#^data:(image/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]++={0,2})$#', $dataUrl, $m)) {
+            throw new EditPlannerException('The attached image could not be read.');
+        }
+
+        return [$m[1], $m[2]];
+    }
+
+    /** @return array<string, mixed> */
+    private static function imageBlock(string $dataUrl): array
+    {
+        [$type, $data] = self::imageParts($dataUrl);
+
+        return ['type' => 'image', 'source' => ['type' => 'base64', 'mediaType' => $type, 'data' => $data]];
+    }
+
     public static function pageText(array $sections, array $elements, ?string $scope, array $media = []): string
     {
         $context = ['page' => $sections, 'elements' => (object) $elements];
