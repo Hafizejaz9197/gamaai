@@ -70,7 +70,32 @@ class ElementSettings {
 		if ( array_intersect( $words, self::INSERT_WORDS ) ) {
 			$types = array_merge( $types, self::INSERTABLE );
 		}
-		$keys = self::keys( $words );
+		$keys       = self::keys( $words );
+		$responsive = (bool) array_intersect( $words, [ 'mobile', 'tablet', 'phone', 'phones', 'responsive', 'screen', 'screens' ] );
+		$hover      = in_array( 'hover', $words, true );
+
+		// Score each setting by how many request words its name has. When
+		// some setting has several ("background" and "color" in
+		// background_color), settings with fewer are left out, so a
+		// background colour request does not bring every background_* and
+		// *_color setting.
+		$scores = [];
+		foreach ( array_unique( $types ) as $type ) {
+			foreach ( $registry->params( $type ) as $name => $param ) {
+				if ( ( ! $responsive && isset( $param['responsive'] ) && 'large' !== $param['responsive'] )
+					|| ( ! $hover && '_hover' === substr( $name, -6 ) ) ) {
+					continue; // Per-screen and hover variants only when asked for.
+				}
+				$score = self::score( $name, $keys );
+				if ( $score > 0 ) {
+					$scores[ $type ][ $name ] = $score;
+				}
+			}
+		}
+		$best = 0;
+		foreach ( $scores as $named ) {
+			$best = max( $best, max( $named ) );
+		}
 
 		$out = [];
 		foreach ( array_unique( $types ) as $type ) {
@@ -79,7 +104,7 @@ class ElementSettings {
 			}
 			$settings = [];
 			foreach ( $registry->params( $type ) as $name => $param ) {
-				if ( 'element_content' === $name || self::matches( $name, $keys ) ) {
+				if ( 'element_content' === $name || ( isset( $scores[ $type ][ $name ] ) && $scores[ $type ][ $name ] === $best ) ) {
 					$settings[ $name ] = isset( $param['options'] ) ? $param['options'] : $param['type'];
 				}
 			}
@@ -189,22 +214,26 @@ class ElementSettings {
 	}
 
 	/**
-	 * Whether a setting name contains one of the words, such as
-	 * background_color for "color" or alignment for "align".
+	 * How many of the words a setting name contains, such as 2 for
+	 * background_color with "background" and "color". A word matches a name
+	 * part exactly or, from four letters, as its start ("align" in alignment).
 	 *
 	 * @param string   $name Setting name.
 	 * @param string[] $keys Words.
-	 * @return bool
+	 * @return int
 	 */
-	private static function matches( $name, array $keys ) {
-		foreach ( explode( '_', $name ) as $part ) {
-			foreach ( $keys as $key ) {
+	private static function score( $name, array $keys ) {
+		$parts = explode( '_', $name );
+		$score = 0;
+		foreach ( $keys as $key ) {
+			foreach ( $parts as $part ) {
 				if ( $part === $key || ( strlen( $key ) >= 4 && 0 === strpos( $part, $key ) ) ) {
-					return true;
+					++$score;
+					break;
 				}
 			}
 		}
-		return false;
+		return $score;
 	}
 
 	/**

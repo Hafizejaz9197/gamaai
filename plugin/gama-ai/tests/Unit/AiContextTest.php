@@ -46,8 +46,14 @@ class AiContextTest extends TestCase {
 	public function test_settings_are_only_those_the_request_names() {
 		$elements = $this->build( 'Change the background colour of the second container', '1' )['elements'];
 
-		$this->assertSame( [ 'background_color' => 'colorpickeralpha', 'link_color' => 'colorpickeralpha' ], $elements['fusion_builder_container'] );
-		$this->assertSame( [ 'element_content' => 'textarea', 'text_color' => 'colorpickeralpha' ], $elements['fusion_title'] );
+		// background_color names both words, so link_color and text_color (one word) are left out,
+		// and so is the tablet variant, because the request names no screen size.
+		$this->assertSame( [ 'background_color' => 'colorpickeralpha' ], $elements['fusion_builder_container'] );
+		$this->assertSame( [ 'element_content' => 'textarea' ], $elements['fusion_title'] );
+
+		$tablet = $this->build( 'Change the background colour on tablet', '1' )['elements'];
+		$this->assertArrayHasKey( 'background_color_medium', $tablet['fusion_builder_container'] );
+		$this->assertArrayHasKey( 'text_color', $this->build( 'Make the heading color red', '1' )['elements']['fusion_title'] );
 		$this->assertArrayNotHasKey( 'fusion_text', $elements, 'Only types in the picked section, and nothing to insert.' );
 	}
 
