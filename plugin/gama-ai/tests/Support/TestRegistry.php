@@ -52,7 +52,7 @@ class TestRegistry {
 				],
 				'fusion_builder_row'       => [],
 				'fusion_builder_column'    => [
-					[ 'type' => 'textfield', 'param_name' => 'type', 'value' => '1_1' ],
+					[ 'type' => 'column_width', 'param_name' => 'type', 'default' => '0' ], // As Avada 3.15.6 maps it.
 					$visibility,
 					[ 'type' => 'colorpickeralpha', 'param_name' => 'background_color', 'default' => '' ],
 				],

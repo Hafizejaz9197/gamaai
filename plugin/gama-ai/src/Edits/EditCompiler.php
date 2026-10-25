@@ -216,7 +216,7 @@ class EditCompiler {
 	 */
 	private function insert( array $op, array $ids ) {
 		$type = $this->string_field( $op, 'type', 100 );
-		if ( ! $this->registry->has( $type ) ) {
+		if ( ! $this->known( $type ) ) {
 			throw new EditException( 'Unknown element "' . $type . '".' );
 		}
 
@@ -261,6 +261,19 @@ class EditCompiler {
 	}
 
 	/**
+	 * Whether an element type exists. Avada does not map
+	 * fusion_builder_row with fusion_builder_map() (it has no settings of
+	 * its own in Avada 3.15.6), so the layout types are known even when the
+	 * registry lacks them.
+	 *
+	 * @param string $type Shortcode name.
+	 * @return bool
+	 */
+	private function known( $type ) {
+		return $this->registry->has( $type ) || isset( self::STRUCTURE[ $type ] );
+	}
+
+	/**
 	 * Give a new container or row that was left empty Avada's basic
 	 * structure, as Avada Builder does when one is added: a row, and in it
 	 * one full-width column. Without it the container shows nothing and
@@ -275,7 +288,7 @@ class EditCompiler {
 			return;
 		}
 		list( $type, $attrs ) = self::SCAFFOLD[ $node->name ];
-		if ( ! $this->registry->has( $type ) ) {
+		if ( ! $this->known( $type ) ) {
 			return;
 		}
 		$checked = [];

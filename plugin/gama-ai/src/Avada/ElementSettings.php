@@ -100,6 +100,9 @@ class ElementSettings {
 		$out = [];
 		foreach ( array_unique( $types ) as $type ) {
 			if ( ! $registry->has( $type ) ) {
+				if ( in_array( $type, self::STRUCTURE, true ) ) {
+					$out[ $type ] = []; // A layout type without settings of its own, such as fusion_builder_row.
+				}
 				continue;
 			}
 			$settings = [];

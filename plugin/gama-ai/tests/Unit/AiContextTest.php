@@ -98,6 +98,6 @@ class AiContextTest extends TestCase {
 		foreach ( [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_title', 'fusion_text', 'fusion_button' ] as $type ) {
 			$this->assertArrayHasKey( $type, $elements );
 		}
-		$this->assertSame( 'textfield', $elements['fusion_builder_column']['type'] );
+		$this->assertSame( 'column_width', $elements['fusion_builder_column']['type'] );
 	}
 }

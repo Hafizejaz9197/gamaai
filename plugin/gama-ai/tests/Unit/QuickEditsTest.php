@@ -148,4 +148,18 @@ class QuickEditsTest extends TestCase {
 		$this->assertNull( $this->handle( 'add a section with a heading and a button' ) );
 		$this->assertNull( $this->handle( 'i just deleted that container. create a new one with 2 sub containers' ) );
 	}
+
+	public function test_add_a_section_works_when_avada_does_not_map_the_row() {
+		$registry = \GamaAI\Avada\Registry::from_array(
+			[
+				'builder_version' => '3.15.6',
+				'elements'        => array_diff_key( TestRegistry::make()->to_array()['elements'], [ 'fusion_builder_row' => true ] ),
+			]
+		);
+		$result = ( new QuickEdits( $registry ) )->handle( 'add a section', ( new ShortcodeParser() )->parse( self::ONE ) );
+		$out    = ( new EditCompiler( $registry ) )->apply( self::ONE, $result['operations'] );
+
+		$this->assertStringEndsWith( '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+		$this->assertArrayHasKey( 'fusion_builder_row', \GamaAI\Avada\ElementSettings::for_request( $registry, [], 'add a row' ) );
+	}
 }
