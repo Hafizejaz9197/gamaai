@@ -14,8 +14,10 @@ use GamaAI\Avada\ShortcodeParser;
 use GamaAI\Compatibility;
 use GamaAI\Drafts\DraftException;
 use GamaAI\Drafts\DraftManager;
+use GamaAI\Edits\AiContext;
 use GamaAI\Edits\EditCompiler;
 use GamaAI\Edits\EditException;
+use GamaAI\Edits\QuickEdits;
 use GamaAI\Saas\SaasClient;
 use GamaAI\Saas\SaasException;
 
@@ -55,6 +57,19 @@ class Controller {
 				'type'     => 'integer',
 				'minimum'  => 1,
 				'required' => true,
+			],
+		];
+
+		$edit_request = [
+			'instruction' => [
+				'type'      => 'string',
+				'minLength' => 1,
+				'maxLength' => 2000,
+				'required'  => true,
+			],
+			'target'      => [
+				'type'    => 'string',
+				'pattern' => '^\\d+(\\.\\d+)*$',
 			],
 		];
 
@@ -129,14 +144,17 @@ class Controller {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'ai_edit' ],
 				'permission_callback' => [ $this, 'can_edit_page' ],
-				'args'                => $id + [
-					'instruction' => [
-						'type'      => 'string',
-						'minLength' => 1,
-						'maxLength' => 2000,
-						'required'  => true,
-					],
-				],
+				'args'                => $id + $edit_request,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/pages/(?P<id>\d+)/ai-context',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'ai_context' ],
+				'permission_callback' => [ $this, 'can_edit_page' ],
+				'args'                => $id + $edit_request,
 			]
 		);
 		register_rest_route(
@@ -182,6 +200,16 @@ class Controller {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'publish' ],
 				'permission_callback' => [ $this, 'can_publish_linked' ],
+				'args'                => $id,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/drafts/(?P<id>\d+)/undo',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'undo' ],
+				'permission_callback' => [ $this, 'can_edit_linked' ],
 				'args'                => $id,
 			]
 		);
@@ -379,9 +407,15 @@ class Controller {
 	}
 
 	/**
-	 * POST /pages/{id}/ai-edit. Sends the page (its draft, if open) and the
-	 * request to the Gama AI service and writes the returned operations to
-	 * the draft. The live page is not changed.
+	 * POST /pages/{id}/ai-edit. Runs the editor's request on the page (its
+	 * draft, if open) and writes the resulting operations to the draft. The
+	 * live page is not changed.
+	 *
+	 * Simple commands with a clear target (delete, duplicate, hide, show) are
+	 * turned into operations here without the AI (QuickEdits). Everything
+	 * else goes to the Gama AI service with only the part of the page and the
+	 * settings the request needs (AiContext). The draft write happens once,
+	 * after a successful answer; nothing here retries it.
 	 *
 	 * @param \WP_REST_Request $request Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -391,35 +425,36 @@ class Controller {
 		if ( $blocked ) {
 			return $blocked;
 		}
-		$registry = $this->current_registry();
-		if ( null === $registry ) {
-			return new \WP_Error( 'gama_ai_no_registry', 'Avada element settings for this version are not known yet. Open any page in Avada Builder once.', [ 'status' => 409 ] );
+		$page = $this->edit_input( $request );
+		if ( $page instanceof \WP_Error ) {
+			return $page;
 		}
-		$page_id = (int) $request['id'];
-		$post    = get_post( $page_id );
-		if ( ! $post instanceof \WP_Post ) {
-			return new \WP_Error( 'gama_ai_not_found', 'Page not found.', [ 'status' => 404 ] );
+		list( $page_id, $root, $registry, $draft_id, $target ) = $page;
+		$instruction = (string) $request['instruction'];
+
+		$quick = ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target );
+		if ( null !== $quick ) {
+			$result = $quick + [
+				'quick' => true,
+				'usage' => null,
+			];
+		} else {
+			$context = ( new AiContext( $registry ) )->build( $instruction, $root, $target );
+			try {
+				$answer = $this->saas->request_edit( $page_id, $instruction, $context['sections'], $context['elements'], $context['scope'], $context['stats'] );
+			} catch ( SaasException $e ) {
+				return new \WP_Error( 'gama_ai_service', $e->getMessage(), [ 'status' => $e->status() ] + $e->data() + [ 'context' => $context['stats'] ] );
+			}
+			$result = [
+				'summary'    => isset( $answer['summary'] ) ? (string) $answer['summary'] : '',
+				'operations' => isset( $answer['operations'] ) && is_array( $answer['operations'] ) ? $answer['operations'] : [],
+				'quick'      => false,
+				'usage'      => isset( $answer['usage'] ) ? $answer['usage'] : null,
+				'context'    => $context['stats'],
+			];
 		}
 
-		$draft_id = $this->drafts->find_draft( $page_id );
-		$root     = ( new ShortcodeParser() )->parse( $draft_id ? get_post( $draft_id )->post_content : $post->post_content );
-		try {
-			$answer = $this->saas->request_edit(
-				$page_id,
-				(string) $request['instruction'],
-				( new PageModel( $registry ) )->build( $root ),
-				ElementSettings::for_page( $registry, $root )
-			);
-		} catch ( SaasException $e ) {
-			return new \WP_Error( 'gama_ai_service', $e->getMessage(), [ 'status' => $e->status() ] + $e->data() );
-		}
-
-		$operations = isset( $answer['operations'] ) && is_array( $answer['operations'] ) ? $answer['operations'] : [];
-		$result     = [
-			'summary'    => isset( $answer['summary'] ) ? (string) $answer['summary'] : '',
-			'operations' => $operations,
-			'usage'      => isset( $answer['usage'] ) ? $answer['usage'] : null,
-		];
+		$operations = $result['operations'];
 		if ( ! $operations ) {
 			return rest_ensure_response( $result + [ 'draft_id' => $draft_id ] );
 		}
@@ -433,7 +468,7 @@ class Controller {
 				}
 			);
 		} catch ( EditException $e ) {
-			// The AI was already paid for, so the answer is returned with the error.
+			// An AI answer was already paid for, so it is returned with the error.
 			return new \WP_Error( 'gama_ai_edit', $e->getMessage(), [ 'status' => 422, 'operation' => $e->operation_index() ] + $result );
 		} catch ( DraftException $e ) {
 			return new \WP_Error( 'gama_ai_draft', $e->getMessage(), [ 'status' => 400 ] );
@@ -443,8 +478,81 @@ class Controller {
 			$result + [
 				'draft_id'    => $draft_id,
 				'preview_url' => get_preview_post_link( $draft_id ),
+				'undo_steps'  => count( $this->drafts->undo_steps( $draft_id ) ),
 				'sections'    => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( get_post( $draft_id )->post_content ) ),
 			]
+		);
+	}
+
+	/**
+	 * GET /pages/{id}/ai-context. What an AI request with this instruction
+	 * would send, and how big it is, without sending anything. Also says
+	 * whether the request would be handled without the AI.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function ai_context( $request ) {
+		$page = $this->edit_input( $request );
+		if ( $page instanceof \WP_Error ) {
+			return $page;
+		}
+		list( , $root, $registry, , $target ) = $page;
+		$instruction = (string) $request['instruction'];
+		$quick       = ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target );
+		$builder     = new AiContext( $registry );
+		$context     = $builder->build( $instruction, $root, $target );
+		return rest_ensure_response(
+			[
+				'quick'          => $quick,
+				'context'        => $context,
+				'before_change'  => $builder->full_size( $root ),
+			]
+		);
+	}
+
+	/**
+	 * Shared input of the edit routes: the page, its parsed layout (the
+	 * draft's, if open), the registry and the picked element.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return array{0:int,1:\GamaAI\Avada\Node,2:\GamaAI\Avada\Registry,3:int|null,4:string|null}|\WP_Error
+	 */
+	private function edit_input( $request ) {
+		$registry = $this->current_registry();
+		if ( null === $registry ) {
+			return new \WP_Error( 'gama_ai_no_registry', 'Avada element settings for this version are not known yet. Open any page in Avada Builder once.', [ 'status' => 409 ] );
+		}
+		$page_id = (int) $request['id'];
+		$post    = get_post( $page_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error( 'gama_ai_not_found', 'Page not found.', [ 'status' => 404 ] );
+		}
+		$draft_id = $this->drafts->find_draft( $page_id );
+		$root     = ( new ShortcodeParser() )->parse( $draft_id ? get_post( $draft_id )->post_content : $post->post_content );
+		$target   = isset( $request['target'] ) && '' !== (string) $request['target'] ? (string) $request['target'] : null;
+		if ( null !== $target && null === PageModel::find( $root, $target ) ) {
+			return new \WP_Error( 'gama_ai_target', 'The picked part of the page is no longer there. Reload the page and pick it again.', [ 'status' => 409 ] );
+		}
+		return [ $page_id, $root, $registry, $draft_id, $target ];
+	}
+
+	/**
+	 * POST /drafts/{id}/undo. Undo the last change made to the draft.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function undo( $request ) {
+		return $this->run(
+			function () use ( $request ) {
+				$draft_id = (int) $request['id'];
+				return [
+					'draft_id'    => $draft_id,
+					'preview_url' => get_preview_post_link( $draft_id ),
+					'undo_steps'  => $this->drafts->undo_draft_change( $draft_id ),
+				];
+			}
 		);
 	}
 

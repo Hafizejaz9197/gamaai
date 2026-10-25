@@ -53,7 +53,7 @@ class AnthropicEditPlannerTest extends TestCase
         $schema = AnthropicEditPlanner::schema();
 
         $this->assertFalse($schema['additionalProperties']);
-        $this->assertCount(5, $schema['properties']['operations']['items']['anyOf']);
+        $this->assertCount(6, $schema['properties']['operations']['items']['anyOf']);
         foreach ($schema['properties']['operations']['items']['anyOf'] as $variant) {
             $this->assertFalse($variant['additionalProperties']);
             $this->assertContains('op', $variant['required']);

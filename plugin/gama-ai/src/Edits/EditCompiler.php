@@ -24,6 +24,7 @@ use GamaAI\Avada\ShortcodeParser;
  * - insert_element   { parent, index?, type, attrs?, text? }   parent "" = page root
  * - remove_element   { target }
  * - move_element     { target, index }                          within the same parent
+ * - duplicate_element { target }                                 copy placed right after it
  *
  * Ids always refer to the page as the model showed it, so earlier
  * operations in the same list do not shift them. Indexes for insert and
@@ -154,6 +155,9 @@ class EditCompiler {
 				$node = $this->target( $op, $ids );
 				$this->place( $this->parents[ $node ], $node, $this->index_field( $op ) );
 				return;
+			case 'duplicate_element':
+				$this->duplicate( $this->target( $op, $ids ) );
+				return;
 			default:
 				throw new EditException( 'Unknown operation "' . (string) $name . '".' );
 		}
@@ -238,6 +242,54 @@ class EditCompiler {
 			)
 		);
 		$this->mark_removed( $node );
+	}
+
+	/**
+	 * Copy an element with everything in it and place the copy right after
+	 * it. HTML ids (`id`, `menu_anchor`) are cleared in the copy, because a
+	 * page must not have the same id twice.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 */
+	private function duplicate( Node $node ) {
+		$parent = $this->parents[ $node ];
+		$copy   = $node->deep_copy();
+		$this->clear_html_ids( $copy );
+		$index = array_search( $node, $parent->shortcode_children(), true );
+		$this->place( $parent, $copy, (int) $index + 1 );
+		$this->register_parents( $copy );
+	}
+
+	/**
+	 * Clear `id` and `menu_anchor` settings in a tree.
+	 *
+	 * @param Node $node Node.
+	 * @return void
+	 */
+	private function clear_html_ids( Node $node ) {
+		foreach ( [ 'id', 'menu_anchor' ] as $key ) {
+			if ( isset( $node->attrs[ $key ] ) && '' !== $node->attrs[ $key ] ) {
+				unset( $node->attrs[ $key ] );
+				$node->dirty = true;
+			}
+		}
+		foreach ( $node->shortcode_children() as $child ) {
+			$this->clear_html_ids( $child );
+		}
+	}
+
+	/**
+	 * Record the parents of a new subtree, so later operations can move it.
+	 *
+	 * @param Node $node Node.
+	 * @return void
+	 */
+	private function register_parents( Node $node ) {
+		foreach ( $node->shortcode_children() as $child ) {
+			$this->parents[ $child ] = $node;
+			$this->register_parents( $child );
+		}
 	}
 
 	/**

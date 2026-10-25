@@ -24,6 +24,10 @@ class DraftManager {
 
 	const META_SOURCE   = '_gama_ai_source_id';
 	const META_SNAPSHOT = '_gama_ai_snapshot';
+	const META_UNDO     = '_gama_ai_undo';
+
+	/** Draft changes that can be undone one by one. */
+	const UNDO_STEPS = 10;
 	const SNAPSHOT_TYPE = 'gama_ai_snapshot';
 
 	/**
@@ -42,6 +46,7 @@ class DraftManager {
 		'_wp_trash_meta_time',
 		self::META_SOURCE,
 		self::META_SNAPSHOT,
+		self::META_UNDO,
 	];
 
 	/** @var PostStore */
@@ -138,8 +143,49 @@ class DraftManager {
 	public function edit_draft( $source_id, callable $edit ) {
 		$draft_id = $this->create_draft( $source_id );
 		$draft    = $this->require_draft( $draft_id );
-		$this->store->update_content( $draft_id, $edit( $draft['content'] ) );
+		$content  = $edit( $draft['content'] );
+		if ( $content === $draft['content'] ) {
+			return $draft_id;
+		}
+
+		// Keep what this change replaces, so it can be undone on its own.
+		$steps   = $this->undo_steps( $draft_id );
+		$steps[] = $draft['content'];
+		$this->store->set_meta( $draft_id, self::META_UNDO, [ array_slice( $steps, -self::UNDO_STEPS ) ] );
+		$this->store->update_content( $draft_id, $content );
 		return $draft_id;
+	}
+
+	/**
+	 * Undo the last change made to a draft. The live page is not touched.
+	 *
+	 * @param int $draft_id Draft ID.
+	 * @return int Changes that can still be undone.
+	 * @throws DraftException When there is nothing to undo.
+	 */
+	public function undo_draft_change( $draft_id ) {
+		$this->require_draft( $draft_id );
+		$steps = $this->undo_steps( $draft_id );
+		if ( ! $steps ) {
+			throw new DraftException( 'There is no change to undo in this draft.' );
+		}
+		$previous = array_pop( $steps );
+		$this->store->set_meta( $draft_id, self::META_UNDO, $steps ? [ $steps ] : [] );
+		$this->store->update_content( $draft_id, $previous );
+		return count( $steps );
+	}
+
+	/**
+	 * Saved draft contents, oldest first.
+	 *
+	 * @param int $draft_id Draft ID.
+	 * @return string[]
+	 */
+	public function undo_steps( $draft_id ) {
+		$meta = $this->store->get_meta( $draft_id );
+		return isset( $meta[ self::META_UNDO ][0] ) && is_array( $meta[ self::META_UNDO ][0] )
+			? array_values( array_filter( $meta[ self::META_UNDO ][0], 'is_string' ) )
+			: [];
 	}
 
 	/**

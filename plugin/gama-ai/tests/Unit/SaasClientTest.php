@@ -70,4 +70,19 @@ class SaasClientTest extends TestCase {
 		$this->expect_error( $this->client( 200, [], 'https://saas.example.com', '' ), 409, 'not connected' );
 		$this->assertSame( [], $this->requests );
 	}
+
+	public function test_request_edit_sends_scope_and_context_sizes_when_given() {
+		$this->client( 200, [ 'summary' => 'Done', 'operations' => [] ] )
+			->request_edit( 11, 'x', [], [], 'Only the 2nd container of 3 is shown.', [ 'page_bytes' => 10 ] );
+
+		$body = json_decode( $this->requests[0][1]['body'], true );
+		$this->assertSame( 'Only the 2nd container of 3 is shown.', $body['scope'] );
+		$this->assertSame( [ 'page_bytes' => 10 ], $body['context_stats'] );
+	}
+
+	public function test_rate_limits_keep_their_status_and_wait_time() {
+		$e = $this->expect_error( $this->client( 429, [ 'message' => 'The AI service is busy.', 'retry_after' => 12 ] ), 429, 'busy' );
+		$this->assertSame( [ 'retry_after' => 12 ], $e->data() );
+		$this->assertCount( 1, $this->requests, 'The plugin never sends an edit request twice on its own.' );
+	}
 }

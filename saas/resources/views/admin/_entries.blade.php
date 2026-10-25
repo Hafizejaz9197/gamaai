@@ -16,8 +16,12 @@
             <td class="num">{{ $entry->kind === 'settle' ? \App\Support\Money::usd($entry->provider_cost_micros) : '' }}</td>
             <td class="muted">
                 @if (isset($entry->meta['reason'])) {{ $entry->meta['reason'] }}
-                @elseif (isset($entry->meta['page_id'])) Page {{ $entry->meta['page_id'] }}
-                @elseif (isset($entry->meta['cache_read_tokens'])) Cache read {{ number_format($entry->meta['cache_read_tokens']) }}, write {{ number_format($entry->meta['cache_write_tokens']) }}
+                @elseif (isset($entry->meta['page_id'])) Page {{ $entry->meta['page_id'] }}@isset($entry->meta['context_bytes']), sent {{ number_format($entry->meta['context_bytes'] / 1024, 1) }} KB{{ ! empty($entry->meta['scope']) ? ' (one section)' : '' }}, max answer {{ number_format($entry->meta['max_output_tokens']) }}@endisset
+                @else
+                    @if (isset($entry->meta['status']) && $entry->meta['status'] !== 'ok') {{ ucfirst(str_replace('_', ' ', $entry->meta['status'])) }}@isset($entry->meta['retry_after']), wait {{ $entry->meta['retry_after'] }}s @endisset. @endif
+                    @if (($entry->meta['attempts'] ?? 1) > 1) {{ $entry->meta['attempts'] }} calls. @endif
+                    @isset($entry->meta['duration_ms']) {{ number_format($entry->meta['duration_ms'] / 1000, 1) }}s. @endisset
+                    @isset($entry->meta['cache_read_tokens']) Cache read {{ number_format($entry->meta['cache_read_tokens']) }}, write {{ number_format($entry->meta['cache_write_tokens']) }}. @endisset
                 @endif
             </td>
         </tr>

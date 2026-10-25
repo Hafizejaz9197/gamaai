@@ -61,6 +61,8 @@ class UsageMeter
     /**
      * Record what an AI call used. Usage above the reservation is still
      * recorded: the provider has already charged for it.
+     *
+     * @param  array<string, mixed>  $meta  Request details kept with the row, such as attempts and duration.
      */
     public function settle(
         string $requestId,
@@ -70,6 +72,7 @@ class UsageMeter
         ?int $providerCostMicros = null,
         int $cacheWriteTokens = 0,
         int $cacheReadTokens = 0,
+        array $meta = [],
     ): UsageEntry {
         if (min($inputTokens, $outputTokens, $cacheWriteTokens, $cacheReadTokens) < 0) {
             throw new InvalidArgumentException('Token counts cannot be negative.');
@@ -83,18 +86,21 @@ class UsageMeter
             'output_tokens' => $outputTokens,
             'estimated_cost_micros' => $this->estimateCost($model, $inputTokens, $outputTokens, $cacheWriteTokens, $cacheReadTokens),
             'provider_cost_micros' => $providerCostMicros,
-            'meta' => ($cacheWriteTokens || $cacheReadTokens)
+            'meta' => (($cacheWriteTokens || $cacheReadTokens)
                 ? ['cache_write_tokens' => $cacheWriteTokens, 'cache_read_tokens' => $cacheReadTokens]
-                : null,
+                : []) + $meta ?: null,
         ]);
     }
 
     /**
-     * Drop a reservation whose AI call did not happen.
+     * Drop a reservation whose AI call did not happen or was refused
+     * without charge (such as a rate limit). $meta says what happened.
+     *
+     * @param  array<string, mixed>  $meta
      */
-    public function release(string $requestId): UsageEntry
+    public function release(string $requestId, array $meta = []): UsageEntry
     {
-        return $this->close($requestId, ['kind' => UsageEntry::RELEASE, 'tokens' => 0]);
+        return $this->close($requestId, ['kind' => UsageEntry::RELEASE, 'tokens' => 0, 'meta' => $meta ?: null]);
     }
 
     /**
