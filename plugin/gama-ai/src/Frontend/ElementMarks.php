@@ -35,6 +35,9 @@ class ElementMarks {
 	/** @var int Root elements seen so far. */
 	private $top = 0;
 
+	/** @var array<int,string>|null What happened, when tracing (for diagnosis). */
+	public $trace = null;
+
 	/**
 	 * Start marking a render of this layout.
 	 *
@@ -89,6 +92,9 @@ class ElementMarks {
 				++$this->top;
 			}
 			$node = null === $id ? null : $this->node( $id );
+			if ( null !== $this->trace ) {
+				$this->trace[] = 'open ' . $tag . ' as ' . $id . ' (layout has ' . ( $node ? $node->name : 'nothing' ) . ')';
+			}
 			if ( null === $node || $node->name !== $tag ) {
 				$this->broken = true;
 				$id           = null;

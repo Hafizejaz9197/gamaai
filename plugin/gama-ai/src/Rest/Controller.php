@@ -176,6 +176,16 @@ class Controller {
 		);
 		register_rest_route(
 			self::NAMESPACE_V1,
+			'/pages/(?P<id>\d+)/marks',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'marks' ],
+				'permission_callback' => [ $this, 'can_edit_page' ],
+				'args'                => $id,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
 			'/tasks',
 			[
 				'methods'             => 'GET',
@@ -574,6 +584,58 @@ class Controller {
 			'undo_steps'  => count( $this->drafts->undo_steps( $draft_id ) ),
 			'sections'    => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( get_post( $draft_id )->post_content ) ),
 		];
+	}
+
+	/**
+	 * GET /pages/{id}/marks. Renders the page's layout (its draft, if open)
+	 * the way the editor sees it and reports which elements got click marks,
+	 * and where marking stopped. For diagnosis; nothing is saved.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function marks( $request ) {
+		$page_id  = (int) $request['id'];
+		$draft_id = $this->drafts->find_draft( $page_id );
+		$post     = get_post( $draft_id ? $draft_id : $page_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error( 'gama_ai_not_found', 'Page not found.', [ 'status' => 404 ] );
+		}
+		$marks        = new \GamaAI\Frontend\ElementMarks();
+		$marks->trace = [];
+		$open         = function ( $value, $tag ) use ( $marks ) {
+			if ( false === $value ) {
+				$marks->open( $tag );
+			}
+			return $value;
+		};
+		$close        = function ( $output, $tag ) use ( $marks ) {
+			return $marks->close( $output, $tag );
+		};
+		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		setup_postdata( $post );
+		add_filter( 'pre_do_shortcode_tag', $open, PHP_INT_MAX, 2 );
+		add_filter( 'do_shortcode_tag', $close, PHP_INT_MAX, 2 );
+		$marks->begin( $post->post_content );
+		$html = do_shortcode( $post->post_content );
+		$marks->end();
+		remove_filter( 'pre_do_shortcode_tag', $open, PHP_INT_MAX );
+		remove_filter( 'do_shortcode_tag', $close, PHP_INT_MAX );
+		wp_reset_postdata();
+
+		preg_match_all( '/data-gama-id="([^"]+)" data-gama-type="([^"]+)"/', $html, $found, PREG_SET_ORDER );
+		return rest_ensure_response(
+			[
+				'post_id' => (int) $post->ID,
+				'marked'  => array_map(
+					function ( $m ) {
+						return $m[1] . ' ' . $m[2];
+					},
+					$found
+				),
+				'trace'   => array_slice( $marks->trace, 0, 200 ),
+			]
+		);
 	}
 
 	/**
