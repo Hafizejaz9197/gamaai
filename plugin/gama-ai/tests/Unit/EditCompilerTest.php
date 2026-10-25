@@ -138,8 +138,40 @@ class EditCompilerTest extends TestCase {
 	}
 
 	public function test_insert_appends_by_default_and_builds_structure() {
+		// A container left empty gets a row and a full-width column, as in Avada Builder.
 		$out = $this->apply( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container' ] ] );
-		$this->assertStringEndsWith( '[/fusion_builder_container][fusion_builder_container][/fusion_builder_container]', $out );
+		$this->assertStringEndsWith( '[/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+	}
+
+	public function test_refs_build_a_whole_new_section_in_one_list() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'insert_element', 'parent' => '', 'index' => 0, 'type' => 'fusion_builder_container', 'ref' => 'box' ],
+				[ 'op' => 'insert_element', 'parent' => 'box', 'type' => 'fusion_builder_row', 'ref' => 'row' ],
+				[ 'op' => 'insert_element', 'parent' => 'row', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_2' ], 'ref' => 'left' ],
+				[ 'op' => 'insert_element', 'parent' => 'row', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_2' ] ],
+				[ 'op' => 'insert_element', 'parent' => 'left', 'type' => 'fusion_title', 'text' => 'New' ],
+				[ 'op' => 'replace_text', 'target' => '0.0.0.0', 'text' => 'Old ids still work' ],
+			]
+		);
+		$this->assertStringStartsWith(
+			'[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_2"][fusion_title]New[/fusion_title][/fusion_builder_column]'
+			. '[fusion_builder_column type="1_2"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]',
+			$out
+		);
+		$this->assertStringContainsString( ']Old ids still work[/fusion_title]', $out );
+	}
+
+	public function test_refs_must_be_names_and_unique() {
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => '0.1' ] ], 'must start with a letter' );
+		$this->assertRejected(
+			[
+				[ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => 'a' ],
+				[ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => 'a' ],
+			],
+			'already used'
+		);
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => 'nope', 'type' => 'fusion_title' ] ], 'No element with id "nope"' );
 	}
 
 	public function test_insert_checks_element_and_place() {

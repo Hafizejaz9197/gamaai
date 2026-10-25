@@ -26,12 +26,14 @@ When `scope` is given, only that part of the page is shown; its ids are still th
 Operations:
 - replace_text: replace an element's text. HTML such as <p>, <strong> and <a> is allowed. Only elements with an `element_content` setting of type tinymce, textarea or textfield have text.
 - set_attribute: set one setting of an element.
-- insert_element: add an element of a listed type to a parent (`parent` "" is the page root), at `index` among the parent's elements, or last when `index` is left out.
+- insert_element: add an element of a listed type to a parent (`parent` "" is the page root), at `index` among the parent's elements, or last when `index` is left out. Give it a `ref` name (such as "s1") to use as the `parent` or `target` of later operations in your list.
 - remove_element: remove an element and everything in it.
 - move_element: move an element to another position in the same parent.
 - duplicate_element: copy an element with everything in it, placed right after it.
 
-Ids always refer to the page as given, even after earlier operations in your list remove or insert elements.
+Ids always refer to the page as given, even after earlier operations in your list remove or insert elements. New elements have no id; use their `ref`.
+
+To build a new section, insert a fusion_builder_container at the page root, a fusion_builder_row in it, then one fusion_builder_column per column, setting each column's `type` to its width as a fraction: 1_1 (full), 1_2, 1_3, 2_3, 1_4, 3_4, 1_5, 2_5, 3_5, 4_5, 1_6 or 5_6, adding up to 1 per row. Then put content elements in the columns. Columns inside a column use fusion_builder_row_inner and fusion_builder_column_inner the same way. "Sub containers" or "boxes" side by side usually mean columns. A container or row you leave empty gets one full-width row and column automatically.
 
 Make the smallest set of operations that does what the site owner asked, and keep the site's existing wording, style and settings unless asked to change them. If the request cannot be done with these operations, or is unclear, return no operations and say why in `summary`. Write `summary` as one or two plain sentences for the site owner, in the language of their request.
 PROMPT;
@@ -191,7 +193,7 @@ PROMPT;
      */
     public static function schema(): array
     {
-        $id = ['type' => 'string', 'description' => 'Element id from the page, such as "0.1.2".'];
+        $id = ['type' => 'string', 'description' => 'Element id from the page, such as "0.1.2", or the ref of an element inserted earlier in the list.'];
         $index = ['type' => 'integer', 'minimum' => 0];
         $op = fn (string $name, array $properties, array $required) => [
             'type' => 'object',
@@ -211,7 +213,7 @@ PROMPT;
                             $op('replace_text', ['target' => $id, 'text' => ['type' => 'string']], ['target', 'text']),
                             $op('set_attribute', ['target' => $id, 'name' => ['type' => 'string'], 'value' => ['type' => 'string']], ['target', 'name', 'value']),
                             $op('insert_element', [
-                                'parent' => ['type' => 'string', 'description' => 'Parent element id, or "" for the page root.'],
+                                'parent' => ['type' => 'string', 'description' => 'Parent element id or ref, or "" for the page root.'],
                                 'index' => $index,
                                 'type' => ['type' => 'string'],
                                 'attrs' => [
@@ -224,6 +226,7 @@ PROMPT;
                                     ],
                                 ],
                                 'text' => ['type' => 'string'],
+                                'ref' => ['type' => 'string', 'description' => 'Name for this new element, used as parent or target by later operations.'],
                             ], ['parent', 'type']),
                             $op('remove_element', ['target' => $id], ['target']),
                             $op('move_element', ['target' => $id, 'index' => $index], ['target', 'index']),

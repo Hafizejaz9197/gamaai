@@ -45,6 +45,11 @@ operation it returns 400 with the failing operation's index in
   They always refer to the page as the model showed it, so removing or
   inserting an element earlier in the list does not shift later ids.
   An element removed earlier in the list cannot be edited.
+- `insert_element` may carry a `ref` name (letters, digits, `-`, `_`, starting
+  with a letter). Later operations in the same list use it as `parent` or
+  `target`, so a new section (container, row, columns, content) is built in one
+  list. A new container or row left without children gets a row and a
+  full-width column (`type="1_1"`), as Avada Builder adds them.
 - `index` counts the parent's elements at the time the operation runs.
 - At most 50 operations per request; all of them apply, or none.
 - Square brackets in text are written as HTML entities, so text can never

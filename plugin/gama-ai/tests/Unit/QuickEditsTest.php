@@ -121,4 +121,31 @@ class QuickEditsTest extends TestCase {
 		$this->assertSame( [], $result['operations'] );
 		$this->assertStringContainsString( 'only per screen size', $result['summary'] );
 	}
+
+	public function test_add_a_section_builds_container_row_and_columns_without_ai() {
+		$result = $this->handle( 'add a new section with 2 columns below the first section' );
+		$out    = $this->apply( $result );
+
+		$this->assertSame( 1, $result['operations'][0]['index'] );
+		$this->assertStringContainsString(
+			'[/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_2"][/fusion_builder_column][fusion_builder_column type="1_2"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_title]About us',
+			$out
+		);
+		$this->assertStringContainsString( 'below the 1st container', $result['summary'] );
+	}
+
+	public function test_add_a_section_on_an_empty_page_and_at_the_top() {
+		$empty = '[fusion_builder_container][/fusion_builder_container]';
+		$out   = $this->apply( $this->handle( 'create a simple container', $empty ), $empty );
+		$this->assertSame( $empty . '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+
+		$this->assertSame( 0, $this->handle( 'add a section at the top' )['operations'][0]['index'] );
+		$this->assertSame( 2, $this->handle( 'add a container above this', self::THREE, '2' )['operations'][0]['index'] );
+		$this->assertStringContainsString( 'Say which one', $this->handle( 'add a section below the container' )['summary'] );
+	}
+
+	public function test_adding_with_content_goes_to_the_ai() {
+		$this->assertNull( $this->handle( 'add a section with a heading and a button' ) );
+		$this->assertNull( $this->handle( 'i just deleted that container. create a new one with 2 sub containers' ) );
+	}
 }

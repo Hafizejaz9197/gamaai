@@ -91,4 +91,13 @@ class AiContextTest extends TestCase {
 
 		$this->assertLessThan( ( $before['page_bytes'] + $before['settings_bytes'] ) / 3, $after['page_bytes'] + $after['settings_bytes'] );
 	}
+
+	public function test_building_a_new_section_sends_the_layout_types_and_column_widths() {
+		$elements = $this->build( 'create a new section with 2 sub containers and a heading', null, '[fusion_builder_container][/fusion_builder_container]' )['elements'];
+
+		foreach ( [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_title', 'fusion_text', 'fusion_button' ] as $type ) {
+			$this->assertArrayHasKey( $type, $elements );
+		}
+		$this->assertSame( 'textfield', $elements['fusion_builder_column']['type'] );
+	}
 }

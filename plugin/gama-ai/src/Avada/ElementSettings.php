@@ -68,7 +68,7 @@ class ElementSettings {
 		}
 		$words = self::words( $instruction );
 		if ( array_intersect( $words, self::INSERT_WORDS ) ) {
-			$types = array_merge( $types, self::INSERTABLE );
+			$types = array_merge( $types, self::INSERTABLE, self::STRUCTURE );
 		}
 		$keys       = self::keys( $words );
 		$responsive = (bool) array_intersect( $words, [ 'mobile', 'tablet', 'phone', 'phones', 'responsive', 'screen', 'screens' ] );
@@ -104,7 +104,8 @@ class ElementSettings {
 			}
 			$settings = [];
 			foreach ( $registry->params( $type ) as $name => $param ) {
-				if ( 'element_content' === $name || ( isset( $scores[ $type ][ $name ] ) && $scores[ $type ][ $name ] === $best ) ) {
+				if ( 'element_content' === $name || ( isset( self::ALWAYS[ $type ] ) && in_array( $name, self::ALWAYS[ $type ], true ) )
+					|| ( isset( $scores[ $type ][ $name ] ) && $scores[ $type ][ $name ] === $best ) ) {
 					$settings[ $name ] = isset( $param['options'] ) ? $param['options'] : $param['type'];
 				}
 			}
@@ -113,6 +114,15 @@ class ElementSettings {
 		ksort( $out );
 		return $out;
 	}
+
+	/** Layout elements a request that adds something may need: sections, rows and columns, also nested. */
+	const STRUCTURE = [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_builder_row_inner', 'fusion_builder_column_inner' ];
+
+	/** Settings always sent for a type: a column's width. */
+	const ALWAYS = [
+		'fusion_builder_column'       => [ 'type' ],
+		'fusion_builder_column_inner' => [ 'type' ],
+	];
 
 	/** Words that ask for a new element. */
 	const INSERT_WORDS = [ 'add', 'insert', 'new', 'create', 'append', 'put', 'include', 'place', 'another' ];

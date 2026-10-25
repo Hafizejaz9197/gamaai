@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.6.0
+Stable tag: 0.6.1
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,11 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.6.1 =
+* New sections are never empty: a new container gets a row and a full-width column, as in Avada Builder.
+* insert_element takes a `ref`, so the AI can build a container with its row, columns and content in one request. Requests that add something now include the layout element types and column widths.
+* "Add a section" (also "with 2 columns", "at the top", "below the second section", "above this") runs without the AI.
 
 = 0.6.0 =
 * Fewer AI tokens per edit. Requests send only the settings the instruction names (a container alone has about 180 settings) and, when a section is picked or named, only that container.

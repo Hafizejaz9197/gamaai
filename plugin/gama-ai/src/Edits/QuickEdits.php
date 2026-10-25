@@ -99,6 +99,11 @@ class QuickEdits {
 	 *         is changed and the summary says why.
 	 */
 	public function handle( $instruction, Node $root, $selected = null ) {
+		$add = $this->parse_add( $instruction );
+		if ( null !== $add ) {
+			return $this->add_section( $add, $root, $selected );
+		}
+
 		$command = $this->parse( $instruction );
 		if ( null === $command ) {
 			return null;
@@ -177,6 +182,113 @@ class QuickEdits {
 			];
 		}
 		return null;
+	}
+
+	/** Number words for column counts. */
+	const COUNTS = [
+		'one'   => 1,
+		'two'   => 2,
+		'three' => 3,
+		'four'  => 4,
+		'1'     => 1,
+		'2'     => 2,
+		'3'     => 3,
+		'4'     => 4,
+	];
+
+	/**
+	 * Read "add a section", "add a new container with 2 columns below the
+	 * first section", "add an empty section at the top" and the like.
+	 *
+	 * @param string $instruction Request.
+	 * @return array{columns:int,where:string|null,target:string|null}|null
+	 */
+	public function parse_add( $instruction ) {
+		$text   = Targets::normalise( $instruction );
+		$counts = implode( '|', array_keys( self::COUNTS ) );
+		$where  = '(?:\s+(?:(below|after|under|above|before)\s+(.+?)|(?:at|to)\s+the\s+(top|bottom|end|start|beginning)(?:\s+of\s+the\s+page)?))?';
+		$pattern = '/^(?:(?:can|could)\s+you\s+)?(?:add|insert|create|make)\s+(?:a|an|one)?\s*(?:(?:new|empty|blank|simple|plain)\s+)*(?:container|section)'
+			. '(?:\s+with\s+(' . $counts . ')\s+(?:equal\s+)?(?:columns?|sub[\s-]?containers?))?' . $where . '$/u';
+		if ( ! preg_match( $pattern, $text, $m ) ) {
+			return null;
+		}
+		$columns = isset( $m[1] ) && '' !== $m[1] ? self::COUNTS[ $m[1] ] : 1;
+		if ( isset( $m[4] ) && '' !== $m[4] ) {
+			return [
+				'columns' => $columns,
+				'where'   => in_array( $m[4], [ 'top', 'start', 'beginning' ], true ) ? 'top' : null,
+				'target'  => null,
+			];
+		}
+		return [
+			'columns' => $columns,
+			'where'   => isset( $m[2] ) && '' !== $m[2] ? ( in_array( $m[2], [ 'above', 'before' ], true ) ? 'before' : 'after' ) : null,
+			'target'  => isset( $m[3] ) && '' !== $m[3] ? $m[3] : null,
+		];
+	}
+
+	/**
+	 * Add an empty container with a row and equal columns.
+	 *
+	 * @param array{columns:int,where:string|null,target:string|null} $add      Parsed request.
+	 * @param Node                                                    $root     Parsed page.
+	 * @param string|null                                             $selected Id of the element picked on the page.
+	 * @return array{summary:string,operations:array<int,array<string,mixed>>}
+	 */
+	private function add_section( array $add, Node $root, $selected ) {
+		$index = null;
+		$place = 'at the end of the page';
+		if ( 'top' === $add['where'] ) {
+			$index = 0;
+			$place = 'at the top of the page';
+		} elseif ( null !== $add['where'] ) {
+			$targets = new Targets( $root );
+			$target  = $targets->resolve( $add['target'], $selected );
+			if ( 'unknown' === $target['status'] ) {
+				return $this->result( 'Say where with a section, for example "below the second section", or pick one with "Pick a section". Nothing was changed.', [] );
+			}
+			if ( 'found' !== $target['status'] ) {
+				return $this->no_target( $target, 'add a section below' );
+			}
+			$top   = (int) strtok( $target['id'], '.' );
+			$index = 'before' === $add['where'] ? $top : $top + 1;
+			$place = ( 'before' === $add['where'] ? 'above ' : 'below ' ) . $targets->label( (string) $top );
+		}
+
+		$container = [
+			'op'     => 'insert_element',
+			'parent' => '',
+			'type'   => 'fusion_builder_container',
+			'ref'    => 'new_section',
+		];
+		if ( null !== $index ) {
+			$container['index'] = $index;
+		}
+		$operations = [
+			$container,
+			[
+				'op'     => 'insert_element',
+				'parent' => 'new_section',
+				'type'   => 'fusion_builder_row',
+				'ref'    => 'new_row',
+			],
+		];
+		$width = [
+			1 => '1_1',
+			2 => '1_2',
+			3 => '1_3',
+			4 => '1_4',
+		];
+		for ( $i = 0; $i < $add['columns']; $i++ ) {
+			$operations[] = [
+				'op'     => 'insert_element',
+				'parent' => 'new_row',
+				'type'   => 'fusion_builder_column',
+				'attrs'  => [ 'type' => $width[ $add['columns'] ] ],
+			];
+		}
+		$columns = 1 === $add['columns'] ? 'one full-width column' : $add['columns'] . ' equal columns';
+		return $this->result( 'Added an empty section with ' . $columns . ' ' . $place . '. Ask for content to fill it, or edit it in Avada Builder.', $operations );
 	}
 
 	/**

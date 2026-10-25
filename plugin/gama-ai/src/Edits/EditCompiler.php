@@ -21,13 +21,17 @@ use GamaAI\Avada\ShortcodeParser;
  *
  * - replace_text     { target, text }
  * - set_attribute    { target, name, value }
- * - insert_element   { parent, index?, type, attrs?, text? }   parent "" = page root
+ * - insert_element   { parent, index?, type, attrs?, text?, ref? }   parent "" = page root
  * - remove_element   { target }
  * - move_element     { target, index }                          within the same parent
  * - duplicate_element { target }                                 copy placed right after it
  *
  * Ids always refer to the page as the model showed it, so earlier
- * operations in the same list do not shift them. Indexes for insert and
+ * operations in the same list do not shift them. An inserted element can
+ * be given a `ref` name, which later operations in the list use as a
+ * `parent` or `target`, so a whole new section (container, row, columns,
+ * content) can be built in one list. A new container or row left without
+ * children gets Avada's basic structure: a row, and a full-width column. Indexes for insert and
  * move count the parent's elements at the time the operation runs. The
  * operations are all-or-nothing: the first invalid one throws and no
  * markup is returned.
@@ -71,6 +75,19 @@ class EditCompiler {
 	/** @var Node */
 	private $root;
 
+	/** @var array<string,Node> Elements inserted in this run, by their ref name. */
+	private $refs = [];
+
+	/** @var \SplObjectStorage Elements inserted in this run. */
+	private $inserted;
+
+	/** Children a new structural element gets when it is left empty. */
+	const SCAFFOLD = [
+		'fusion_builder_container' => [ 'fusion_builder_row', [] ],
+		'fusion_builder_row'       => [ 'fusion_builder_column', [ 'type' => '1_1' ] ],
+		'fusion_builder_row_inner' => [ 'fusion_builder_column_inner', [ 'type' => '1_1' ] ],
+	];
+
 	/**
 	 * Constructor.
 	 *
@@ -105,8 +122,10 @@ class EditCompiler {
 
 		$this->root    = ( new ShortcodeParser() )->parse( $content );
 		$this->parents = new \SplObjectStorage();
-		$this->removed = new \SplObjectStorage();
-		$ids           = [];
+		$this->removed  = new \SplObjectStorage();
+		$this->inserted = new \SplObjectStorage();
+		$this->refs     = [];
+		$ids            = [];
 		$this->index( $this->root, '', $ids );
 
 		foreach ( array_values( $operations ) as $i => $op ) {
@@ -115,6 +134,10 @@ class EditCompiler {
 			} catch ( EditException $e ) {
 				throw new EditException( 'Operation ' . $i . ': ' . $e->getMessage(), $i );
 			}
+		}
+
+		foreach ( $this->inserted as $node ) {
+			$this->scaffold( $node );
 		}
 
 		$serializer = new Serializer();
@@ -223,6 +246,47 @@ class EditCompiler {
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
 		$this->place( $parent, $node, $index );
+		$this->inserted->attach( $node );
+
+		if ( isset( $op['ref'] ) && '' !== $op['ref'] ) {
+			$ref = $this->string_field( $op, 'ref', 40 );
+			if ( ! preg_match( '/^[a-z][a-z0-9_-]*$/i', $ref ) ) {
+				throw new EditException( '"ref" must start with a letter and use only letters, digits, - and _.' );
+			}
+			if ( isset( $this->refs[ $ref ] ) ) {
+				throw new EditException( 'The ref "' . $ref . '" is already used in this list.' );
+			}
+			$this->refs[ $ref ] = $node;
+		}
+	}
+
+	/**
+	 * Give a new container or row that was left empty Avada's basic
+	 * structure, as Avada Builder does when one is added: a row, and in it
+	 * one full-width column. Without it the container shows nothing and
+	 * nothing can be placed in it.
+	 *
+	 * @param Node $node Inserted element.
+	 * @return void
+	 * @throws EditException When the registry does not know the column width setting.
+	 */
+	private function scaffold( Node $node ) {
+		if ( $this->removed->contains( $node ) || ! isset( self::SCAFFOLD[ $node->name ] ) || $node->shortcode_children() ) {
+			return;
+		}
+		list( $type, $attrs ) = self::SCAFFOLD[ $node->name ];
+		if ( ! $this->registry->has( $type ) ) {
+			return;
+		}
+		$checked = [];
+		foreach ( $attrs as $key => $value ) {
+			$checked[ $key ] = $this->checked_attr( $type, $key, $value );
+		}
+		$child            = Node::shortcode( $type, '', $checked );
+		$child->raw_close = '[/' . $type . ']';
+		$child->dirty     = true;
+		$this->place( $node, $child, PHP_INT_MAX );
+		$this->scaffold( $child );
 	}
 
 	/**
@@ -424,6 +488,12 @@ class EditCompiler {
 	 * @throws EditException When it is missing or was removed.
 	 */
 	private function lookup( $id, array $ids ) {
+		if ( isset( $this->refs[ $id ] ) ) {
+			if ( $this->removed->contains( $this->refs[ $id ] ) ) {
+				throw new EditException( 'Element "' . $id . '" was removed by an earlier operation.' );
+			}
+			return $this->refs[ $id ];
+		}
 		if ( ! isset( $ids[ $id ] ) ) {
 			throw new EditException( 'No element with id "' . $id . '".' );
 		}
