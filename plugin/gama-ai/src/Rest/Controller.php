@@ -20,6 +20,8 @@ use GamaAI\Edits\EditException;
 use GamaAI\Edits\QuickEdits;
 use GamaAI\Saas\SaasClient;
 use GamaAI\Saas\SaasException;
+use GamaAI\Tasks\Pins;
+use GamaAI\Tasks\TaskStore;
 
 /**
  * Routes under /wp-json/gama-ai/v1. Every route needs a logged-in user with
@@ -38,15 +40,20 @@ class Controller {
 	/** @var SaasClient */
 	private $saas;
 
+	/** @var TaskStore */
+	private $tasks;
+
 	/**
 	 * Constructor.
 	 *
-	 * @param DraftManager $drafts Draft workflow.
-	 * @param SaasClient   $saas   Gama AI service.
+	 * @param DraftManager   $drafts Draft workflow.
+	 * @param SaasClient     $saas   Gama AI service.
+	 * @param TaskStore|null $tasks  Pinned tasks.
 	 */
-	public function __construct( DraftManager $drafts, SaasClient $saas ) {
+	public function __construct( DraftManager $drafts, SaasClient $saas, $tasks = null ) {
 		$this->drafts = $drafts;
 		$this->saas   = $saas;
+		$this->tasks  = $tasks ? $tasks : new TaskStore();
 	}
 
 	/**
@@ -165,6 +172,67 @@ class Controller {
 				'callback'            => [ $this, 'ai_context' ],
 				'permission_callback' => [ $this, 'can_edit_page' ],
 				'args'                => $id + $edit_request,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/tasks',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'list_tasks' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_pages' );
+				},
+				'args'                => [
+					'page_id' => [
+						'type'    => 'integer',
+						'minimum' => 1,
+					],
+				],
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/pages/(?P<id>\d+)/tasks',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'create_task' ],
+				'permission_callback' => [ $this, 'can_edit_page' ],
+				'args'                => $id + $edit_request,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/tasks/(?P<id>\d+)/fix',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'fix_task' ],
+				'permission_callback' => [ $this, 'can_edit_task' ],
+				'args'                => $id,
+			]
+		);
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/tasks/(?P<id>\d+)',
+			[
+				[
+					'methods'             => 'POST',
+					'callback'            => [ $this, 'update_task' ],
+					'permission_callback' => [ $this, 'can_edit_task' ],
+					'args'                => $id + [
+						'status' => [
+							'type'     => 'string',
+							'enum'     => [ 'open', 'done' ],
+							'required' => true,
+						],
+					],
+				],
+				[
+					'methods'             => 'DELETE',
+					'callback'            => [ $this, 'delete_task' ],
+					'permission_callback' => [ $this, 'can_edit_task' ],
+					'args'                => $id,
+				],
 			]
 		);
 		register_rest_route(
@@ -439,10 +507,24 @@ class Controller {
 		if ( $page instanceof \WP_Error ) {
 			return $page;
 		}
-		list( $page_id, $root, $registry, $draft_id, $target ) = $page;
-		$instruction = (string) $request['instruction'];
-
 		$image = isset( $request['image'] ) && '' !== $request['image'] ? (string) $request['image'] : null;
+		$result = $this->run_edit( $page, (string) $request['instruction'], $image );
+		return $result instanceof \WP_Error ? $result : rest_ensure_response( $result );
+	}
+
+	/**
+	 * Turn a request into operations (without the AI when it is simple) and
+	 * write them to the page's draft. The draft write happens once, after a
+	 * successful answer; nothing here retries it.
+	 *
+	 * @param array       $page        edit_input() result.
+	 * @param string      $instruction Request.
+	 * @param string|null $image       Attached picture as a data URL.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	private function run_edit( array $page, $instruction, $image = null ) {
+		list( $page_id, $root, $registry, $draft_id, $target ) = $page;
+
 		// A request with a picture needs the AI to look at it.
 		$quick = null === $image ? ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target ) : null;
 		if ( null !== $quick ) {
@@ -468,7 +550,7 @@ class Controller {
 
 		$operations = $result['operations'];
 		if ( ! $operations ) {
-			return rest_ensure_response( $result + [ 'draft_id' => $draft_id ] );
+			return $result + [ 'draft_id' => $draft_id ];
 		}
 
 		$compiler = new EditCompiler( $registry, 'wp_kses_post', [ $this, 'sanitize_setting' ] );
@@ -486,14 +568,130 @@ class Controller {
 			return new \WP_Error( 'gama_ai_draft', $e->getMessage(), [ 'status' => 400 ] );
 		}
 
-		return rest_ensure_response(
-			$result + [
-				'draft_id'    => $draft_id,
-				'preview_url' => get_preview_post_link( $draft_id ),
-				'undo_steps'  => count( $this->drafts->undo_steps( $draft_id ) ),
-				'sections'    => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( get_post( $draft_id )->post_content ) ),
+		return $result + [
+			'draft_id'    => $draft_id,
+			'preview_url' => get_preview_post_link( $draft_id ),
+			'undo_steps'  => count( $this->drafts->undo_steps( $draft_id ) ),
+			'sections'    => ( new PageModel( $registry ) )->build( ( new ShortcodeParser() )->parse( get_post( $draft_id )->post_content ) ),
+		];
+	}
+
+	/**
+	 * GET /tasks. Tasks of one page (page_id) or of every page the user can edit.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response
+	 */
+	public function list_tasks( $request ) {
+		$page_id = isset( $request['page_id'] ) ? (int) $request['page_id'] : null;
+		$tasks   = array_values(
+			array_filter(
+				$this->tasks->all( $page_id ?: null ),
+				function ( $task ) {
+					return current_user_can( 'edit_post', $task['page_id'] );
+				}
+			)
+		);
+		return rest_ensure_response( [ 'tasks' => $tasks ] );
+	}
+
+	/**
+	 * POST /pages/{id}/tasks. Pin a request to the page or one element on it.
+	 * Nothing is sent to the AI until the task is fixed.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function create_task( $request ) {
+		$page = $this->edit_input( $request );
+		if ( $page instanceof \WP_Error ) {
+			return $page;
+		}
+		list( $page_id, $root, , , $target ) = $page;
+		$pin = null === $target ? null : Pins::make( $root, $target );
+		return rest_ensure_response( [ 'task' => $this->tasks->create( $page_id, (string) $request['instruction'], $pin, get_current_user_id() ) ] );
+	}
+
+	/**
+	 * POST /tasks/{id}/fix. Run the task's request on its page, into the draft.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function fix_task( $request ) {
+		$blocked = $this->write_blocked();
+		if ( $blocked ) {
+			return $blocked;
+		}
+		$task = $this->tasks->get( (int) $request['id'] );
+		if ( null === $task ) {
+			return new \WP_Error( 'gama_ai_not_found', 'Task not found.', [ 'status' => 404 ] );
+		}
+		$input = new \WP_REST_Request( 'POST' );
+		$input->set_param( 'id', $task['page_id'] );
+		$page = $this->edit_input( $input );
+		if ( $page instanceof \WP_Error ) {
+			return $page;
+		}
+		if ( null !== $task['pin'] ) {
+			$page[4] = Pins::locate( $page[1], $task['pin'] );
+			if ( null === $page[4] ) {
+				$this->tasks->update( $task['id'], [ 'error' => 'The pinned element changed. Pin it again.' ] );
+				return new \WP_Error( 'gama_ai_pin_lost', 'The element this task was pinned to has changed or moved, so it cannot be found for sure. Delete the task and pin it again.', [ 'status' => 409 ] );
+			}
+		}
+
+		$result = $this->run_edit( $page, $task['instruction'] );
+		if ( $result instanceof \WP_Error ) {
+			$this->tasks->update( $task['id'], [ 'error' => $result->get_error_message() ] );
+			$data         = (array) $result->get_error_data();
+			$data['task'] = $this->tasks->get( $task['id'] );
+			$result->add_data( $data );
+			return $result;
+		}
+		$changed        = ! empty( $result['operations'] );
+		$result['task'] = $this->tasks->update(
+			$task['id'],
+			[
+				'status'  => $changed ? 'review' : 'open',
+				'summary' => $result['summary'],
+				'error'   => $changed ? '' : 'Nothing was changed.',
 			]
 		);
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * POST /tasks/{id}. Set a task's status by hand (open or done).
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function update_task( $request ) {
+		$task = $this->tasks->update( (int) $request['id'], [ 'status' => (string) $request['status'] ] );
+		return null === $task ? new \WP_Error( 'gama_ai_not_found', 'Task not found.', [ 'status' => 404 ] ) : rest_ensure_response( [ 'task' => $task ] );
+	}
+
+	/**
+	 * DELETE /tasks/{id}.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response
+	 */
+	public function delete_task( $request ) {
+		$this->tasks->delete( (int) $request['id'] );
+		return rest_ensure_response( [ 'deleted' => true ] );
+	}
+
+	/**
+	 * Permission: the user can edit the page a task belongs to.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return bool
+	 */
+	public function can_edit_task( $request ) {
+		$task = $this->tasks->get( (int) $request['id'] );
+		return null !== $task && current_user_can( 'edit_post', $task['page_id'] );
 	}
 
 	/**
@@ -689,9 +887,11 @@ class Controller {
 		}
 		return $this->run(
 			function () use ( $request ) {
-				$source_id = $this->drafts->source_of( (int) $request['id'] );
+				$source_id   = $this->drafts->source_of( (int) $request['id'] );
+				$snapshot_id = $this->drafts->publish( (int) $request['id'], get_current_user_id() );
+				$this->tasks->move_all( $source_id, 'review', 'done' );
 				return [
-					'snapshot_id' => $this->drafts->publish( (int) $request['id'], get_current_user_id() ),
+					'snapshot_id' => $snapshot_id,
 					'page_url'    => get_permalink( $source_id ),
 				];
 			}
@@ -708,6 +908,7 @@ class Controller {
 		return $this->run(
 			function () use ( $request ) {
 				$source_id = $this->drafts->discard( (int) $request['id'] );
+				$this->tasks->move_all( $source_id, 'review', 'open' );
 				return [
 					'page_id'  => $source_id,
 					'page_url' => get_permalink( $source_id ),

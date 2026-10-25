@@ -82,3 +82,7 @@ An element inserted one or two layout levels too high (content into a container 
 ## Attached pictures
 
 `POST /pages/{id}/ai-edit` takes an optional `image`: a `data:image/(png|jpeg|webp|gif);base64,…` URL of at most 2,000,000 characters (the command bar sends a JPEG of at most 1280 px). It is passed to the service and the AI to explain the request, counted as up to 1,600 input tokens in the estimate, and never stored; the ledger keeps only its size. The AI still answers with the operations above only.
+
+## Tasks
+
+A task is a request kept for later, pinned to the page or to one element (`POST /pages/{id}/tasks` with `instruction` and optional `target`). The pin stores the element's id, type and the first 60 characters of its text, so when ids move it is found again by type and text; if that fits no element or several, Fix refuses instead of guessing. Nothing goes to the AI until `POST /tasks/{id}/fix`, which runs the same path as `ai-edit` into the draft and sets the task to `review`. Publishing the draft moves `review` tasks to `done`; discarding moves them back to `open`. `GET /tasks[?page_id=]`, `POST /tasks/{id}` (`status` open or done) and `DELETE /tasks/{id}` manage the list.

@@ -5,7 +5,7 @@
 	if (!cfg) {
 		return;
 	}
-	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false, target: null, undoSteps: 0, retryTimer: null, image: null };
+	var state = { draftId: cfg.draftId, previewUrl: cfg.previewUrl, snapshotId: null, busy: false, target: null, undoSteps: 0, retryTimer: null, image: null, tasks: [], tab: 'page', fixing: false };
 	// Screenshots are shrunk in the browser before they are sent: the AI
 	// reads a 1280 px image as well as a bigger one, for far fewer tokens.
 	var IMAGE_MAX_SIDE = 1280;
@@ -27,13 +27,17 @@
 		return node;
 	}
 
-	function api(path, body) {
-		return fetch(cfg.restUrl + path, {
-			method: 'POST',
+	function api(path, body, method) {
+		method = method || 'POST';
+		var options = {
+			method: method,
 			credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce },
-			body: JSON.stringify(body || {})
-		}).then(function (response) {
+			headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce }
+		};
+		if (method !== 'GET') {
+			options.body = JSON.stringify(body || {});
+		}
+		return fetch(cfg.restUrl + path, options).then(function (response) {
 			return response.json().catch(function () {
 				return {};
 			}).then(function (data) {
@@ -69,6 +73,8 @@
 	var send = el('button', { class: 'g-btn', type: 'button', text: 'Make changes' });
 	var hint = el('span', { class: 'g-hint', text: 'Changes go to a draft first.' });
 	var pick = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Pick a section', hidden: '' });
+	var save = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Save as task', title: 'Keep this as a task. The AI works on it only when you press Fix.' });
+	var tasksBox = el('div', { class: 'g-tasks' });
 	var picked = el('p', { class: 'g-hint g-picked', hidden: '' });
 	var file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: '' });
 	var attach = el('button', { class: 'g-btn g-ghost', type: 'button', text: 'Add image', title: 'Add a screenshot or picture that shows what you mean. You can also paste one into the box.' });
@@ -81,8 +87,9 @@
 		input,
 		attached,
 		picked,
-		el('div', { class: 'g-row' }, [send, pick, attach, file, hint]),
-		result
+		el('div', { class: 'g-row' }, [send, save, pick, attach, file, hint]),
+		result,
+		tasksBox
 	]);
 
 	function link(text, href, ghost) {
@@ -107,6 +114,7 @@
 			note.textContent = 'Visitors see nothing until you publish.';
 		}
 		input.disabled = !!cfg.problem;
+		save.disabled = !!cfg.problem;
 		attach.disabled = !!cfg.problem;
 		send.disabled = !!cfg.problem;
 	}
@@ -178,7 +186,30 @@
 		return [];
 	}
 
+	// Elements Avada rendered, marked by the plugin with their ids while
+	// the page on screen is the layout edits change.
+	function marked() {
+		return cfg.containers ? document.querySelectorAll('[data-gama-id]') : [];
+	}
+
+	var TYPE_NAMES = {
+		fusion_builder_container: 'section', fusion_builder_row: 'row', fusion_builder_column: 'column',
+		fusion_builder_row_inner: 'inner row', fusion_builder_column_inner: 'inner column', fusion_title: 'heading',
+		fusion_text: 'text', fusion_button: 'button', fusion_imageframe: 'image', fusion_separator: 'divider',
+		fusion_checklist: 'list', fusion_fontawesome: 'icon', fusion_gallery: 'gallery'
+	};
+
+	function elementLabel(node) {
+		var type = node.getAttribute('data-gama-type') || '';
+		var name = TYPE_NAMES[type] || type.replace(/^(fusion_builder_|fusion_|awb_)/, '').replace(/_/g, ' ');
+		var text = (node.innerText || '').replace(/\s+/g, ' ').trim();
+		return name + (text ? ' \u201C' + (text.length > 30 ? text.slice(0, 30) + '\u2026' : text) + '\u201D' : '');
+	}
+
 	function canPick() {
+		if (marked().length) {
+			return true;
+		}
 		return !!(cfg.containers && cfg.containers.length > 1 && sectionBoxes().length === cfg.containers.length);
 	}
 
@@ -186,17 +217,24 @@
 		picked.textContent = '';
 		picked.hidden = !state.target;
 		if (state.target) {
-			picked.appendChild(document.createTextNode('Working on ' + state.target.label + ' only. '));
+			picked.appendChild(document.createTextNode('Pinned to ' + state.target.label + '. '));
+			var parent = state.target.box.parentElement && state.target.box.parentElement.closest('[data-gama-id]');
+			if (parent) {
+				picked.appendChild(button('Bigger area', function () {
+					setTarget({ id: parent.getAttribute('data-gama-id'), box: parent, label: elementLabel(parent) });
+				}, true));
+			}
 			picked.appendChild(button('Clear', function () {
 				setTarget(null);
 			}, true));
 		}
 		pick.hidden = !canPick() || !!cfg.problem;
+		pick.textContent = marked().length ? '+ Pin' : 'Pick a section';
 	}
 
 	function setTarget(target) {
 		state.target = target;
-		sectionBoxes().forEach(function (box) {
+		Array.prototype.forEach.call(document.querySelectorAll('.gama-ai-picked'), function (box) {
 			box.classList.remove('gama-ai-picked');
 		});
 		if (target) {
@@ -205,7 +243,63 @@
 		renderPicked();
 	}
 
+	function startPinning() {
+		panel.hidden = true;
+		document.body.classList.add('gama-ai-pinning');
+		var tip = el('div', { id: 'gama-ai-tip', text: 'Click the part of the page this is about. Press Esc to cancel.' });
+		document.body.appendChild(tip);
+		var hover = null;
+
+		function target(event) {
+			return event.target && event.target.closest ? event.target.closest('[data-gama-id]') : null;
+		}
+		function mark(node) {
+			if (hover) {
+				hover.classList.remove('gama-ai-hover');
+			}
+			hover = node;
+			if (hover) {
+				hover.classList.add('gama-ai-hover');
+			}
+		}
+		function over(event) {
+			mark(target(event));
+		}
+		function stop() {
+			mark(null);
+			document.body.classList.remove('gama-ai-pinning');
+			tip.remove();
+			document.removeEventListener('mouseover', over, true);
+			document.removeEventListener('click', choose, true);
+			document.removeEventListener('keydown', onKey, true);
+			panel.hidden = false;
+		}
+		function choose(event) {
+			var node = target(event);
+			if (!node) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			stop();
+			setTarget({ id: node.getAttribute('data-gama-id'), box: node, label: elementLabel(node) });
+			input.focus();
+		}
+		function onKey(event) {
+			if (event.key === 'Escape') {
+				stop();
+			}
+		}
+		document.addEventListener('mouseover', over, true);
+		document.addEventListener('click', choose, true);
+		document.addEventListener('keydown', onKey, true);
+	}
+
 	function startPicking() {
+		if (marked().length) {
+			startPinning();
+			return;
+		}
 		var boxes = sectionBoxes();
 		if (!canPick()) {
 			return;
@@ -249,6 +343,233 @@
 		setTarget(null);
 		cfg.containers = null;
 		renderPicked();
+		renderPins();
+	}
+
+	// Tasks: requests pinned to the page, fixed by the AI only on Fix.
+	var STATUS_NAMES = { open: 'Open', review: 'Ready to review', done: 'Done' };
+
+	function loadTasks() {
+		return api('tasks', null, 'GET').then(function (data) {
+			state.tasks = data.tasks || [];
+			renderTasks();
+			renderPins();
+		}, function () {});
+	}
+
+	function pageTasks() {
+		return state.tasks.filter(function (task) {
+			return task.page_id === cfg.pageId;
+		});
+	}
+
+	function replaceTask(task) {
+		state.tasks = state.tasks.map(function (t) {
+			return t.id === task.id ? task : t;
+		});
+	}
+
+	function saveTask() {
+		var instruction = input.value.trim();
+		if (!instruction || state.busy) {
+			return;
+		}
+		var body = { instruction: instruction };
+		if (state.target) {
+			body.target = state.target.id;
+		}
+		setBusy(true, 'Working\u2026');
+		api('pages/' + cfg.pageId + '/tasks', body).then(function (data) {
+			setBusy(false);
+			state.tasks.unshift(data.task);
+			input.value = '';
+			setTarget(null);
+			state.tab = 'page';
+			renderTasks();
+			renderPins();
+			show('ok', ['Task #' + data.task.id + ' saved. Press Fix when you want the AI to work on it.']);
+		}, failed);
+	}
+
+	function fixTask(task) {
+		if (state.busy) {
+			return Promise.resolve(false);
+		}
+		setBusy(true, 'Fixing #' + task.id + '\u2026');
+		show('ok', ['The AI is working on task #' + task.id + '\u2026']);
+		return api('tasks/' + task.id + '/fix').then(function (data) {
+			setBusy(false);
+			if (data.task) {
+				replaceTask(data.task);
+			}
+			var how = data.quick ? { cls: 'g-cost', text: 'Done without the AI, so no tokens were used.' } : costLine(data.usage);
+			if (data.operations && data.operations.length) {
+				state.draftId = data.draft_id;
+				state.previewUrl = data.preview_url;
+				state.undoSteps = data.undo_steps || 0;
+				stopPickingUntilReload();
+				renderNote();
+				show('ok', ['#' + task.id + ': ' + (data.summary || 'Changed.'), 'Saved to the draft.', how], draftActions());
+			} else {
+				show('ok', ['#' + task.id + ': ' + (data.summary || 'The AI made no changes.'), 'Nothing was changed.', how], draftActions());
+			}
+			renderTasks();
+			return true;
+		}, function (error) {
+			setBusy(false);
+			if (error.data && error.data.task) {
+				replaceTask(error.data.task);
+			}
+			var lines = ['#' + task.id + ': ' + error.message];
+			if (error.data && error.data.summary) {
+				lines.push('The AI said: ' + error.data.summary);
+			}
+			show('error', lines.concat([costLine(error.data && error.data.usage)]), draftActions());
+			renderTasks();
+			if (error.status === 429) {
+				retryLater(error.data && error.data.retry_after ? error.data.retry_after : 30);
+			}
+			return false;
+		});
+	}
+
+	// One task after another, stopping at the first failure so nothing is
+	// sent again on its own.
+	function fixAll() {
+		var queue = pageTasks().filter(function (task) {
+			return task.status === 'open';
+		}).reverse();
+		function next() {
+			var task = queue.shift();
+			if (!task) {
+				return;
+			}
+			fixTask(task).then(function (ok) {
+				if (ok) {
+					next();
+				}
+			});
+		}
+		next();
+	}
+
+	function setTaskStatus(task, status) {
+		api('tasks/' + task.id, { status: status }).then(function (data) {
+			replaceTask(data.task);
+			renderTasks();
+			renderPins();
+		}, failed);
+	}
+
+	function deleteTask(task) {
+		if (!window.confirm('Delete task #' + task.id + '?')) {
+			return;
+		}
+		api('tasks/' + task.id, {}, 'DELETE').then(function () {
+			state.tasks = state.tasks.filter(function (t) {
+				return t.id !== task.id;
+			});
+			renderTasks();
+			renderPins();
+		}, failed);
+	}
+
+	function renderTasks() {
+		tasksBox.textContent = '';
+		var mine = pageTasks();
+		if (!state.tasks.length) {
+			return;
+		}
+		var list = state.tab === 'page' ? mine : state.tasks;
+		var tabs = el('div', { class: 'g-row g-tabs' }, [
+			button('This page (' + mine.length + ')', function () {
+				state.tab = 'page';
+				renderTasks();
+			}, state.tab !== 'page'),
+			button('All (' + state.tasks.length + ')', function () {
+				state.tab = 'all';
+				renderTasks();
+			}, state.tab !== 'all')
+		]);
+		var open = mine.filter(function (task) {
+			return task.status === 'open';
+		}).length;
+		if (open > 1 && !cfg.problem) {
+			tabs.appendChild(button('Fix all open (' + open + ')', fixAll));
+		}
+		tasksBox.appendChild(el('strong', { class: 'g-tasks-head', text: 'Tasks' }));
+		tasksBox.appendChild(tabs);
+		list.forEach(function (task) {
+			var actions = [];
+			var here = task.page_id === cfg.pageId;
+			if (here && task.status === 'open' && !cfg.problem) {
+				actions.push(button('Fix', function () {
+					fixTask(task);
+				}));
+			}
+			if (here && task.status === 'review' && state.previewUrl && !cfg.onDraft) {
+				actions.push(link('Preview', state.previewUrl, true));
+			}
+			if (!here) {
+				actions.push(link('Open page', task.page_url, true));
+			}
+			if (task.status !== 'done') {
+				actions.push(button('Done', function () {
+					setTaskStatus(task, 'done');
+				}, true));
+			} else {
+				actions.push(button('Reopen', function () {
+					setTaskStatus(task, 'open');
+				}, true));
+			}
+			actions.push(button('Delete', function () {
+				deleteTask(task);
+			}, true));
+			tasksBox.appendChild(el('div', { class: 'g-task g-' + task.status, id: 'gama-ai-task-' + task.id }, [
+				el('div', { class: 'g-task-top' }, [
+					el('span', { class: 'g-num', text: '#' + task.id }),
+					el('span', { class: 'g-status', text: STATUS_NAMES[task.status] || task.status })
+				]),
+				el('p', { class: 'g-task-text', text: task.instruction }),
+				el('p', { class: 'g-hint', text: (task.pin ? task.pin.label + (task.pin.snippet ? ' \u201C' + task.pin.snippet.slice(0, 30) + '\u201D' : '') : 'Whole page') + (here ? '' : ' \u00b7 ' + task.page_title) }),
+				task.summary ? el('p', { class: 'g-hint', text: 'AI: ' + task.summary }) : el('span'),
+				task.error && task.status === 'open' ? el('p', { class: 'g-hint g-bad', text: task.error }) : el('span'),
+				el('div', { class: 'g-row' }, actions)
+			]));
+		});
+	}
+
+	// Numbered pins on the page for this page's tasks that are not done.
+	function renderPins() {
+		Array.prototype.forEach.call(document.querySelectorAll('.gama-ai-pin'), function (pin) {
+			pin.remove();
+		});
+		if (!marked().length) {
+			return;
+		}
+		pageTasks().forEach(function (task) {
+			if (task.status === 'done' || !task.pin) {
+				return;
+			}
+			var node = document.querySelector('[data-gama-id="' + task.pin.target + '"]');
+			if (!node || node.getAttribute('data-gama-type') !== task.pin.type) {
+				return;
+			}
+			var box = node.getBoundingClientRect();
+			var pin = el('button', { class: 'gama-ai-pin g-' + task.status, type: 'button', text: String(task.id), title: task.instruction });
+			pin.style.top = (box.top + window.scrollY) + 'px';
+			pin.style.left = (box.left + window.scrollX) + 'px';
+			pin.addEventListener('click', function () {
+				open();
+				state.tab = 'page';
+				renderTasks();
+				var card = document.getElementById('gama-ai-task-' + task.id);
+				if (card) {
+					card.scrollIntoView({ block: 'nearest' });
+				}
+			});
+			document.body.appendChild(pin);
+		});
 	}
 
 	function setImage(dataUrl) {
@@ -396,6 +717,7 @@
 			state.snapshotId = data.snapshot_id;
 			cfg.onDraft = false;
 			renderNote();
+			loadTasks();
 			show('ok', ['Published.'], [link('View the page', data.page_url || cfg.pageUrl), button('Undo', undo, true)]);
 		}, failed);
 	}
@@ -409,6 +731,7 @@
 			setBusy(false);
 			state.draftId = null;
 			state.previewUrl = null;
+			loadTasks();
 			if (cfg.onDraft) {
 				window.location.href = data.page_url || cfg.pageUrl;
 				return;
@@ -450,6 +773,7 @@
 		launch.hidden = false;
 	});
 	send.addEventListener('click', edit);
+	save.addEventListener('click', saveTask);
 	pick.addEventListener('click', startPicking);
 	attach.addEventListener('click', function () {
 		file.click();
@@ -493,6 +817,8 @@
 		}
 		renderNote();
 		renderPicked();
+		loadTasks();
+		window.addEventListener('resize', renderPins);
 		if (cfg.onDraft) {
 			open();
 			show('ok', ['These are the unpublished changes.'], draftActions());
