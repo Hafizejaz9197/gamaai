@@ -266,6 +266,12 @@ class EditCompiler {
 		} elseif ( isset( $op['text'] ) ) {
 			$this->link_media_url( $node );
 		}
+		$params = $this->registry->params( $type );
+		if ( null !== $this->media_url && isset( $params['element_content'] ) && in_array( $params['element_content']['type'], self::URL_TYPES, true )
+			&& ! $node->children ) {
+			// Avada shows an image element with no picture as nothing at all on the page.
+			throw new EditException( 'A new ' . $type . ' needs a picture: set its image_id to a media library image, such as "87|full".' );
+		}
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
 		$this->place( $parent, $node, $index );

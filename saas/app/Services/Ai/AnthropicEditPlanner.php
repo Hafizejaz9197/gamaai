@@ -206,9 +206,14 @@ PROMPT;
             // The schema lists settings as name/value pairs; the plugin takes an object.
             if ($op['op'] === 'insert_element') {
                 $attrs = [];
-                foreach ($op['attrs'] ?? [] as $pair) {
+                foreach ($op['attrs'] ?? [] as $key => $pair) {
                     if (is_array($pair) && is_string($pair['name'] ?? null) && is_scalar($pair['value'] ?? null)) {
                         $attrs[$pair['name']] = (string) $pair['value'];
+                    } elseif (is_string($key) && is_scalar($pair)) {
+                        // JSON-mode models often write settings as a plain object instead of pairs.
+                        $attrs[$key] = is_bool($pair) ? ($pair ? 'yes' : 'no') : (string) $pair;
+                    } else {
+                        throw new EditPlannerException('The AI answer was not in the expected format (settings of a new element).');
                     }
                 }
                 $op['attrs'] = (object) $attrs;

@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.8.3
+Stable tag: 0.8.4
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,10 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.8.4 =
+* A new image element must come with a picture from the media library; an empty one is refused instead of being added.
+* The service reads new-element settings that AI models write as a plain object (they were dropped before, which is why images were added empty).
 
 = 0.8.3 =
 * Empty elements (such as an image with no picture yet) show as a dashed "Empty image" box for editors, so they can be pinned. Visitors see nothing.

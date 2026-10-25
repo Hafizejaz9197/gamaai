@@ -29,6 +29,13 @@ class AnthropicEditPlannerTest extends TestCase
         $this->assertSame('{"size":"3"}', json_encode($operations[1]['attrs']));
     }
 
+    public function test_parse_reads_attrs_written_as_a_plain_object(): void
+    {
+        [, $operations] = AnthropicEditPlanner::parse('{"summary":"","operations":[{"op":"insert_element","parent":"2.0.1","type":"fusion_imageframe","attrs":{"image_id":"87|full"}}]}');
+
+        $this->assertEquals((object) ['image_id' => '87|full'], $operations[0]['attrs']);
+    }
+
     public function test_parse_keeps_empty_attrs_as_an_object(): void
     {
         [, $operations] = AnthropicEditPlanner::parse('{"summary":"","operations":[{"op":"insert_element","parent":"","type":"fusion_builder_container"}]}');

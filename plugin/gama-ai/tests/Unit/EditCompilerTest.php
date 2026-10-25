@@ -134,6 +134,15 @@ class EditCompilerTest extends TestCase {
 		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
 	}
 
+	public function test_a_new_image_needs_a_picture() {
+		try {
+			$this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe' ] ] );
+			$this->fail( 'Expected an empty image to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'needs a picture', $e->getMessage() );
+		}
+	}
+
 	public function test_an_image_url_must_be_in_the_media_library() {
 		try {
 			$this->with_media( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://elsewhere.com/x.jpg' ] ] );
