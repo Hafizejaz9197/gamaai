@@ -35,7 +35,7 @@ class EditRequestController extends Controller
             'instruction' => ['required', 'string', 'max:2000'],
             'sections' => ['present', 'array'],
             'elements' => ['present', 'array'],
-            'scope' => ['nullable', 'string', 'max:300'],
+            'scope' => ['nullable', 'string', 'max:600'],
             'context_stats' => ['nullable', 'array'],
             'media' => ['nullable', 'array', 'max:20'],
             'media.*.id' => ['required', 'integer', 'min:1'],

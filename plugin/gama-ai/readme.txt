@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.8.2
+Stable tag: 0.8.3
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,10 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.8.3 =
+* Empty elements (such as an image with no picture yet) show as a dashed "Empty image" box for editors, so they can be pinned. Visitors see nothing.
+* The AI is told exactly which element is pinned and whether it is empty, and picks an image itself when asked for "any image".
 
 = 0.8.2 =
 * Image elements set by URL get the media library id of that image (image_id "ID|full"), because Avada shows an image element without an id as its bare URL text. URLs that are not in the media library are refused instead of breaking the page.

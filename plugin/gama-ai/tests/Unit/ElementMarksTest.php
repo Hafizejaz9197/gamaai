@@ -70,4 +70,12 @@ class ElementMarksTest extends TestCase {
 		$marks->open( 'fusion_title' );
 		$this->assertSame( '<h2>x</h2>', $marks->close( '<h2>x</h2>', 'fusion_title' ) );
 	}
+
+	public function test_empty_elements_get_a_marked_box_for_editors() {
+		$marks = new ElementMarks();
+		$marks->begin( '[fusion_builder_container][fusion_imageframe][/fusion_imageframe][/fusion_builder_container]' );
+		$marks->open( 'fusion_builder_container' );
+		$marks->open( 'fusion_imageframe' );
+		$this->assertSame( '<div class="gama-ai-empty" data-gama-id="0.0" data-gama-type="fusion_imageframe">Empty image</div>', $marks->close( '', 'fusion_imageframe' ) );
+	}
 }

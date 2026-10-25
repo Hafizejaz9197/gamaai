@@ -45,3 +45,4 @@ body.gama-ai-pinning,body.gama-ai-pinning *{cursor:crosshair!important}
 #gama-ai-panel .g-task p.g-hint{margin:0 0 2px}
 #gama-ai-panel .g-bad{color:var(--g-bad-text)}
 #gama-ai-panel .g-task .g-row{margin-top:6px}
+.gama-ai-empty{min-height:60px;display:flex;align-items:center;justify-content:center;border:2px dashed #8da4ef;border-radius:6px;color:#3e63dd;font:500 13px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;background:rgba(62,99,221,.05)}

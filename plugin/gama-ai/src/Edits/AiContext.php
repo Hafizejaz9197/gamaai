@@ -84,7 +84,7 @@ class AiContext {
 			'sections' => $sections,
 			'elements' => $elements,
 			'media'    => $media,
-			'scope'    => null === $scope ? null : 'Only ' . $targets->label( $scope ) . ' of ' . count( $top ) . ' is shown' . ( $focus !== $scope ? '; the request is about element ' . $focus : '' ) . '. Ids are page-wide.',
+			'scope'    => self::scope_text( $targets, $scope, $focus, $selected, count( $top ) ),
 			'stats'    => [
 				'focus'          => $focus,
 				'scope'          => $scope,
@@ -95,6 +95,33 @@ class AiContext {
 				'media_count'    => count( $media ),
 			],
 		];
+	}
+
+	/**
+	 * What the AI is told about the part of the page it sees and the
+	 * element the request is about. A pinned element is named outright,
+	 * so "this", "here" and "it" point at it.
+	 *
+	 * @param Targets     $targets  Page targets.
+	 * @param string|null $scope    Container shown, or null for all.
+	 * @param string|null $focus    Element the request is about.
+	 * @param string|null $selected Element pinned on the page.
+	 * @param int         $count    Containers on the page.
+	 * @return string|null
+	 */
+	private static function scope_text( Targets $targets, $scope, $focus, $selected, $count ) {
+		$parts = [];
+		if ( null !== $scope ) {
+			$parts[] = 'Only ' . $targets->label( $scope ) . ' of ' . $count . ' is shown. Ids are page-wide.';
+		}
+		if ( null !== $focus && $focus === $selected ) {
+			$node    = $targets->node( $focus );
+			$empty   = '' === $targets->text( $node ) && ! $node->shortcode_children();
+			$parts[] = 'The site owner pinned element ' . $focus . ' (' . $node->name . ( $empty ? ', currently empty' : '' ) . ') on the page: "this", "here", "it" and "that element" mean it, and the request is about it.';
+		} elseif ( null !== $focus && $focus !== $scope ) {
+			$parts[] = 'The request is about element ' . $focus . '.';
+		}
+		return $parts ? implode( ' ', $parts ) : null;
 	}
 
 	/**

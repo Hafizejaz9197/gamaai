@@ -124,6 +124,18 @@ class ElementMarks {
 		if ( null === $entry['id'] || ! is_string( $output ) ) {
 			return $output;
 		}
+		if ( '' === trim( $output ) ) {
+			// An element with nothing to show, such as an image with no picture yet. Editors
+			// get a marked box so it can still be found and pinned; visitors never see this.
+			$names = [
+				'fusion_imageframe'        => 'Empty image',
+				'fusion_title'             => 'Empty heading',
+				'fusion_text'              => 'Empty text',
+				'fusion_builder_container' => 'Hidden or empty section',
+			];
+			$name  = isset( $names[ $tag ] ) ? $names[ $tag ] : 'Empty ' . str_replace( '_', ' ', (string) preg_replace( '/^(fusion_builder_|fusion_|awb_)/', '', $tag ) );
+			return '<div class="gama-ai-empty" data-gama-id="' . $entry['id'] . '" data-gama-type="' . preg_replace( '/[^a-z0-9_]/', '', $tag ) . '">' . htmlspecialchars( $name, ENT_QUOTES ) . '</div>';
+		}
 		// The first real element, skipping inline <style>, <script> and comments some elements print first.
 		return (string) preg_replace(
 			'/<(?!(?:style|script|link|noscript)\b)([a-z][a-z0-9-]*)(?=[\s>\/])/i',

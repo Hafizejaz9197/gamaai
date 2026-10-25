@@ -136,4 +136,12 @@ class AiContextTest extends TestCase {
 
 		$this->assertSame( [], ( new AiContext( TestRegistry::make(), $media ) )->build( 'make the heading blue', $root )['media'] );
 	}
+
+	public function test_a_pinned_element_is_named_for_the_ai() {
+		$content = '[fusion_builder_container][/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_imageframe][/fusion_imageframe][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]';
+		$scope   = $this->build( 'add any image from media here', '1.0.0.0', $content )['scope'];
+
+		$this->assertStringContainsString( 'pinned element 1.0.0.0 (fusion_imageframe, currently empty)', $scope );
+		$this->assertLessThan( 300, strlen( $scope ) );
+	}
 }

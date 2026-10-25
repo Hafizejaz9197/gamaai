@@ -39,7 +39,7 @@ To build a new section, insert a fusion_builder_container at the page root, a fu
 
 The site owner may attach a picture, such as a screenshot or a sketch, that shows what they mean. Use it to understand the request, and still answer only with operations on the page as given. Never put the attached picture itself on the page.
 
-Make the smallest set of operations that does what the site owner asked, and keep the site's existing wording, style and settings unless asked to change them. If the request cannot be done with these operations, or is unclear, return no operations and say why in `summary`. Write `summary` as one or two plain sentences for the site owner, in the language of their request.
+Make the smallest set of operations that does what the site owner asked, and keep the site's existing wording, style and settings unless asked to change them. When the request leaves a choice to you, such as "any image" or "a nice heading", make that choice yourself (for an image, pick one from `media`) instead of asking. If the request cannot be done with these operations, or it is unclear what or where to change, return no operations and say why in `summary`. Write `summary` as one or two plain sentences for the site owner, in the language of their request.
 PROMPT;
 
     public function __construct(
