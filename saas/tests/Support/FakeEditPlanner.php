@@ -8,7 +8,7 @@ use App\Services\Ai\EditPlannerException;
 
 class FakeEditPlanner implements EditPlanner
 {
-    /** @var list<array{0: string, 1: array, 2: array, 3: ?string}> */
+    /** @var list<array{0: string, 1: array, 2: array, 3: ?string, 4: array}> */
     public array $calls = [];
 
     public function __construct(
@@ -16,9 +16,9 @@ class FakeEditPlanner implements EditPlanner
         private readonly int $estimate = 1_000,
     ) {}
 
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null): EditPlan
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): EditPlan
     {
-        $this->calls[] = [$instruction, $sections, $elements, $scope];
+        $this->calls[] = [$instruction, $sections, $elements, $scope, $media];
         if ($this->result instanceof EditPlannerException) {
             throw $this->result;
         }
@@ -26,7 +26,7 @@ class FakeEditPlanner implements EditPlanner
         return $this->result;
     }
 
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null): int
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): int
     {
         return $this->estimate;
     }

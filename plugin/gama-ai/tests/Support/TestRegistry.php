@@ -73,6 +73,14 @@ class TestRegistry {
 					[ 'type' => 'colorpickeralpha', 'param_name' => 'button_gradient_top_color', 'default' => '' ],
 					$visibility,
 				],
+				'fusion_imageframe'        => [
+					[ 'type' => 'upload', 'param_name' => 'element_content', 'value' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'image_id', 'default' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'alt', 'default' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'max_width', 'default' => '' ],
+					[ 'type' => 'radio_button_set', 'param_name' => 'align', 'value' => [ 'none' => 'N', 'left' => 'L', 'center' => 'C', 'right' => 'R' ], 'default' => 'none' ],
+					$visibility,
+				],
 			]
 		);
 	}

@@ -439,9 +439,9 @@ class Controller {
 				'usage' => null,
 			];
 		} else {
-			$context = ( new AiContext( $registry ) )->build( $instruction, $root, $target );
+			$context = ( new AiContext( $registry, [ $this, 'recent_images' ] ) )->build( $instruction, $root, $target );
 			try {
-				$answer = $this->saas->request_edit( $page_id, $instruction, $context['sections'], $context['elements'], $context['scope'], $context['stats'] );
+				$answer = $this->saas->request_edit( $page_id, $instruction, $context['sections'], $context['elements'], $context['scope'], $context['stats'], $context['media'] );
 			} catch ( SaasException $e ) {
 				return new \WP_Error( 'gama_ai_service', $e->getMessage(), [ 'status' => $e->status() ] + $e->data() + [ 'context' => $context['stats'] ] );
 			}
@@ -485,6 +485,39 @@ class Controller {
 	}
 
 	/**
+	 * The newest images in the media library, for requests that add or
+	 * change images.
+	 *
+	 * @param int $limit How many.
+	 * @return array<int,array{id:int,url:string,title:string}>
+	 */
+	public function recent_images( $limit ) {
+		$posts = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_mime_type' => 'image',
+				'post_status'    => 'inherit',
+				'posts_per_page' => (int) $limit,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			]
+		);
+		$out = [];
+		foreach ( $posts as $post ) {
+			$url = wp_get_attachment_url( $post->ID );
+			if ( $url ) {
+				$alt   = (string) get_post_meta( $post->ID, '_wp_attachment_image_alt', true );
+				$out[] = [
+					'id'    => (int) $post->ID,
+					'url'   => (string) $url,
+					'title' => '' !== $alt ? $alt : (string) $post->post_title,
+				];
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * GET /pages/{id}/ai-context. What an AI request with this instruction
 	 * would send, and how big it is, without sending anything. Also says
 	 * whether the request would be handled without the AI.
@@ -500,7 +533,7 @@ class Controller {
 		list( , $root, $registry, , $target ) = $page;
 		$instruction = (string) $request['instruction'];
 		$quick       = ( new QuickEdits( $registry ) )->handle( $instruction, $root, $target );
-		$builder     = new AiContext( $registry );
+		$builder     = new AiContext( $registry, [ $this, 'recent_images' ] );
 		$context     = $builder->build( $instruction, $root, $target );
 		return rest_ensure_response(
 			[

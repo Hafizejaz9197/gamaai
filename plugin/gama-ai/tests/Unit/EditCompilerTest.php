@@ -93,8 +93,21 @@ class EditCompilerTest extends TestCase {
 		$this->assertStringContainsString( ']xHi[/fusion_title]', $out );
 	}
 
+	public function test_image_elements_take_a_web_address_as_content() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => ' https://example.com/new.jpg ' ],
+				[ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '7|full' ], 'text' => 'https://example.com/b.jpg' ],
+			]
+		);
+		$this->assertStringContainsString( '[fusion_imageframe image_id="14|full"]https://example.com/new.jpg[/fusion_imageframe]', $out );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="7|full"]https://example.com/b.jpg[/fusion_imageframe]', $out );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'javascript:alert(1)' ] ], 'needs a web address' );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://x.com/a.jpg][fusion_code]' ] ], 'needs a web address' );
+	}
+
 	public function test_replace_text_needs_a_text_setting() {
-		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'x' ] ], 'fusion_imageframe has no editable text' );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'x' ] ], 'fusion_imageframe needs a web address' );
 		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.0', 'text' => 'x' ] ], 'has no editable text' );
 	}
 

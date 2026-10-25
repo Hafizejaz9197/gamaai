@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.6.1
+Stable tag: 0.6.2
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,11 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.6.2 =
+* AI requests may use any Avada element the request names ("image", "gallery", "video", "divider", "separator" and so on), not only titles, text and buttons. Only that element's needed settings are sent.
+* Requests about images include up to 12 recent images from the media library; the AI sets the image URL and its media library id ("ID|full"), so the image stays editable in Avada Builder.
+* Image elements only accept http(s) URLs as their image.
 
 = 0.6.1 =
 * New sections are never empty: a new container gets a row and a full-width column, as in Avada Builder.

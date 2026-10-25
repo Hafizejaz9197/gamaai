@@ -104,6 +104,15 @@ class Registry {
 	}
 
 	/**
+	 * Shortcode names of all elements.
+	 *
+	 * @return string[]
+	 */
+	public function names() {
+		return array_keys( $this->elements );
+	}
+
+	/**
 	 * Number of elements.
 	 *
 	 * @return int

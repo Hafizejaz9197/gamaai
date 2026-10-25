@@ -25,9 +25,9 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
         private readonly int $maxTokens,
     ) {}
 
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null): EditPlan
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): EditPlan
     {
-        $user = ['role' => 'user', 'content' => AnthropicEditPlanner::pageText($sections, $elements, $scope)
+        $user = ['role' => 'user', 'content' => AnthropicEditPlanner::pageText($sections, $elements, $scope, $media)
             ."\n\nSite owner's request:\n".$instruction];
 
         // Providers that take a JSON schema get it once, as the answer format.
@@ -90,11 +90,11 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
         return $plan($summary, $operations);
     }
 
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null): int
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): int
     {
         // The JSON-mode fallback repeats the schema in the instructions, so count it.
         $input = strlen(AnthropicEditPlanner::SYSTEM_PROMPT) + 2 * strlen((string) json_encode(AnthropicEditPlanner::schema()))
-            + strlen($instruction) + strlen(AnthropicEditPlanner::pageText($sections, $elements, $scope));
+            + strlen($instruction) + strlen(AnthropicEditPlanner::pageText($sections, $elements, $scope, $media));
 
         return intdiv($input, 3) + 1 + $this->maxTokens;
     }

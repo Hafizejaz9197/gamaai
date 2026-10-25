@@ -57,6 +57,9 @@ class EditCompiler {
 	/** Setting types whose element_content may be replaced with text. */
 	const TEXT_TYPES = [ 'tinymce', 'textarea', 'textfield' ];
 
+	/** Setting types whose element_content is a file URL, such as an image element's image. */
+	const URL_TYPES = [ 'upload' ];
+
 	/** @var Registry */
 	private $registry;
 
@@ -199,7 +202,7 @@ class EditCompiler {
 		if ( $node->shortcode_children() ) {
 			throw new EditException( $node->name . ' holds other elements; edit those instead.' );
 		}
-		$node->children = [ Node::text( $this->clean_text( $text ) ) ];
+		$node->children = [ Node::text( $this->clean_content( $node->name, $text ) ) ];
 		if ( null === $node->raw_close ) {
 			$node->raw_close = '[/' . $node->name . ']';
 			$node->dirty     = true; // Drops a self-closing slash from the opening tag.
@@ -241,7 +244,7 @@ class EditCompiler {
 		$node->dirty     = true;
 		if ( isset( $op['text'] ) ) {
 			$this->require_text_param( $type );
-			$node->children[] = Node::text( $this->clean_text( $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
+			$node->children[] = Node::text( $this->clean_content( $type, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
 		}
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
@@ -448,7 +451,7 @@ class EditCompiler {
 	 */
 	private function require_text_param( $type ) {
 		$params = $this->registry->params( $type );
-		if ( ! isset( $params['element_content'] ) || ! in_array( $params['element_content']['type'], self::TEXT_TYPES, true ) ) {
+		if ( ! isset( $params['element_content'] ) || ! in_array( $params['element_content']['type'], array_merge( self::TEXT_TYPES, self::URL_TYPES ), true ) ) {
 			throw new EditException( ( $type ? $type : 'This element' ) . ' has no editable text.' );
 		}
 	}
@@ -467,6 +470,28 @@ class EditCompiler {
 		if ( ! in_array( $parent_type, $allowed, true ) ) {
 			throw new EditException( $type . ' cannot be placed in ' . ( '' === $parent_type ? 'the page root' : $parent_type ) . '.' );
 		}
+	}
+
+	/**
+	 * Clean an element's content: text (HTML allowed) for text elements, or
+	 * a web address for elements whose content is a file, such as the image
+	 * of fusion_imageframe.
+	 *
+	 * @param string $type Element.
+	 * @param string $text Content.
+	 * @return string
+	 * @throws EditException When a file element gets something other than a web address.
+	 */
+	private function clean_content( $type, $text ) {
+		$param = $this->registry->params( $type )['element_content'];
+		if ( ! in_array( $param['type'], self::URL_TYPES, true ) ) {
+			return $this->clean_text( $text );
+		}
+		$url = trim( $text );
+		if ( ! preg_match( '#^https?://[^\s\[\]"<>]+$#i', $url ) ) {
+			throw new EditException( $type . ' needs a web address (https://...) as its content.' );
+		}
+		return (string) call_user_func( $this->sanitize_attr, $url, $param );
 	}
 
 	/**

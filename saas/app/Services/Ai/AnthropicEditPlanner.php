@@ -31,6 +31,8 @@ Operations:
 - move_element: move an element to another position in the same parent.
 - duplicate_element: copy an element with everything in it, placed right after it.
 
+When `media` is given, it lists images from the site's media library. To show one in an image element (fusion_imageframe), set its text (`element_content`) to the image's `url` with replace_text and its `image_id` setting to "ID|full", such as "42|full". Use only urls listed in `media`.
+
 Ids always refer to the page as given, even after earlier operations in your list remove or insert elements. New elements have no id; use their `ref`.
 
 To build a new section, insert a fusion_builder_container at the page root, a fusion_builder_row in it, then one fusion_builder_column per column, setting each column's `type` to its width as a fraction: 1_1 (full), 1_2, 1_3, 2_3, 1_4, 3_4, 1_5, 2_5, 3_5, 4_5, 1_6 or 5_6, adding up to 1 per row. Then put content elements in the columns. Columns inside a column use fusion_builder_row_inner and fusion_builder_column_inner the same way. "Sub containers" or "boxes" side by side usually mean columns. A container or row you leave empty gets one full-width row and column automatically.
@@ -45,7 +47,7 @@ PROMPT;
         private readonly int $maxTokens,
     ) {}
 
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null): EditPlan
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): EditPlan
     {
         try {
             $message = $this->client->beta->messages->create(
@@ -61,7 +63,7 @@ PROMPT;
                         // further requests on the same page pay the cache-read price.
                         [
                             'type' => 'text',
-                            'text' => self::pageText($sections, $elements, $scope),
+                            'text' => self::pageText($sections, $elements, $scope, $media),
                             'cacheControl' => ['type' => 'ephemeral'],
                         ],
                         ['type' => 'text', 'text' => "Site owner's request:\n".$instruction],
@@ -122,9 +124,9 @@ PROMPT;
         return $plan($summary, $operations);
     }
 
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null): int
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = []): int
     {
-        $input = strlen(self::SYSTEM_PROMPT) + strlen($instruction) + strlen(self::pageText($sections, $elements, $scope));
+        $input = strlen(self::SYSTEM_PROMPT) + strlen($instruction) + strlen(self::pageText($sections, $elements, $scope, $media));
 
         // About three bytes per token for JSON-heavy input, rounded up, plus the most the answer may use.
         return intdiv($input, 3) + 1 + $this->maxTokens;
@@ -141,11 +143,14 @@ PROMPT;
      * @param  list<array<string, mixed>>  $sections
      * @param  array<string, array<string, mixed>>  $elements
      */
-    public static function pageText(array $sections, array $elements, ?string $scope): string
+    public static function pageText(array $sections, array $elements, ?string $scope, array $media = []): string
     {
         $context = ['page' => $sections, 'elements' => (object) $elements];
         if ($scope !== null && $scope !== '') {
             $context = ['scope' => $scope] + $context;
+        }
+        if ($media !== []) {
+            $context['media'] = $media;
         }
 
         return (string) json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

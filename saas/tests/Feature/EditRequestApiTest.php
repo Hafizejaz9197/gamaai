@@ -119,6 +119,29 @@ class EditRequestApiTest extends TestCase
         $this->assertArrayHasKey('duration_ms', $settle);
     }
 
+    public function test_media_library_images_reach_the_planner(): void
+    {
+        [, $token] = $this->site(budget: 100_000);
+        $planner = $this->fake(new EditPlan('ok', [], 'test-model', 300, 40));
+
+        $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY + [
+            'media' => [['id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team', 'extra' => 'dropped']],
+        ])->assertOk();
+
+        $this->assertSame([['id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team']], $planner->calls[0][4]);
+        $this->assertSame(1, UsageEntry::where('kind', 'reserve')->sole()->meta['media_count']);
+    }
+
+    public function test_media_must_be_web_urls(): void
+    {
+        [, $token] = $this->site(budget: 100_000);
+        $this->fake(new EditPlan('ok', [], 'test-model', 300, 40));
+
+        $this->withToken($token)->postJson('/api/v1/site/edit-requests', self::BODY + [
+            'media' => [['id' => 7, 'url' => 'javascript:alert(1)']],
+        ])->assertUnprocessable();
+    }
+
     public function test_charged_failure_is_still_settled(): void
     {
         [$site, $token] = $this->site(budget: 10_000);

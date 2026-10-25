@@ -100,4 +100,40 @@ class AiContextTest extends TestCase {
 		}
 		$this->assertSame( 'column_width', $elements['fusion_builder_column']['type'] );
 	}
+
+	public function test_a_named_element_type_is_allowed_with_its_media_library_settings() {
+		$elements = $this->build( 'put an image in each column', null, QuickEditsTest::THREE )['elements'];
+
+		$this->assertArrayHasKey( 'fusion_imageframe', $elements );
+		$this->assertArrayHasKey( 'element_content', $elements['fusion_imageframe'] );
+		$this->assertArrayHasKey( 'image_id', $elements['fusion_imageframe'] );
+		$this->assertArrayHasKey( 'alt', $elements['fusion_imageframe'] );
+		$this->assertArrayNotHasKey( 'max_width', $elements['fusion_imageframe'] );
+	}
+
+	public function test_image_requests_get_recent_media_library_images() {
+		$asked   = null;
+		$media   = function ( $limit ) use ( &$asked ) {
+			$asked = $limit;
+			return [
+				[ 'id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team' ],
+				[ 'id' => 0, 'url' => 'https://example.com/broken.jpg' ],
+			];
+		};
+		$root    = ( new ShortcodeParser() )->parse( QuickEditsTest::THREE );
+		$context = ( new AiContext( TestRegistry::make(), $media ) )->build( 'add a photo from media to the first container', $root );
+
+		$this->assertSame( AiContext::MEDIA_LIMIT, $asked );
+		$this->assertSame( [ [ 'id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team' ] ], $context['media'] );
+		$this->assertSame( 1, $context['stats']['media_count'] );
+	}
+
+	public function test_other_requests_do_not_load_the_media_library() {
+		$media = function () {
+			throw new \RuntimeException( 'not needed' );
+		};
+		$root  = ( new ShortcodeParser() )->parse( QuickEditsTest::THREE );
+
+		$this->assertSame( [], ( new AiContext( TestRegistry::make(), $media ) )->build( 'make the heading blue', $root )['media'] );
+	}
 }
