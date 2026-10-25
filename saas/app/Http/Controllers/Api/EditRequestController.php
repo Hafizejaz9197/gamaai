@@ -35,9 +35,20 @@ class EditRequestController extends Controller
             'instruction' => ['required', 'string', 'max:2000'],
             'sections' => ['present', 'array'],
             'elements' => ['present', 'array'],
-            'scope' => ['nullable', 'string', 'max:300'],
+            'scope' => ['nullable', 'string', 'max:600'],
             'context_stats' => ['nullable', 'array'],
+            'media' => ['nullable', 'array', 'max:20'],
+            'media.*.id' => ['required', 'integer', 'min:1'],
+            'media.*.url' => ['required', 'url:http,https', 'max:500'],
+            'media.*.title' => ['nullable', 'string', 'max:200'],
+            // A picture the site owner attached to explain the request. Passed to the AI, never stored.
+            'image' => ['nullable', 'string', 'max:2000000', 'regex:#^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]++={0,2}$#'],
         ]);
+        $image = $data['image'] ?? null;
+        $media = array_map(
+            fn (array $item) => array_intersect_key($item, array_flip(['id', 'url', 'title'])),
+            array_values($data['media'] ?? []),
+        );
         $scope = $data['scope'] ?? null;
         $context = (string) json_encode([$data['sections'], $data['elements']]);
         if (strlen($context) > config('gama.ai.max_context_bytes')) {
@@ -46,7 +57,7 @@ class EditRequestController extends Controller
 
         /** @var Site $site */
         $site = $request->attributes->get('site');
-        $estimate = $this->planner->estimateTokens($data['instruction'], $data['sections'], $data['elements'], $scope);
+        $estimate = $this->planner->estimateTokens($data['instruction'], $data['sections'], $data['elements'], $scope, $media, $image);
         // What was sent and why it costs what it does, kept with the ledger row and in the log.
         $details = [
             'page_id' => $data['page_id'],
@@ -54,6 +65,8 @@ class EditRequestController extends Controller
             'page_bytes' => strlen((string) json_encode($data['sections'])),
             'settings_bytes' => strlen((string) json_encode($data['elements'])),
             'scope' => $scope !== null,
+            'media_count' => count($media),
+            'image_bytes' => $image !== null ? strlen($image) : 0,
             'estimated_tokens' => $estimate,
             'max_output_tokens' => $this->planner->maxOutputTokens(),
         ] + array_intersect_key($data['context_stats'] ?? [], array_flip(['settings_count', 'element_types', 'focus']));
@@ -68,7 +81,7 @@ class EditRequestController extends Controller
 
         $started = hrtime(true);
         try {
-            $plan = $this->planner->plan($data['instruction'], $data['sections'], $data['elements'], $scope);
+            $plan = $this->planner->plan($data['instruction'], $data['sections'], $data['elements'], $scope, $media, $image);
         } catch (EditPlannerException $e) {
             $outcome = [
                 'status' => $e->rateLimited ? 'rate_limited' : 'failed',

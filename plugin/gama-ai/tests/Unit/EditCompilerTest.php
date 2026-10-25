@@ -93,8 +93,76 @@ class EditCompilerTest extends TestCase {
 		$this->assertStringContainsString( ']xHi[/fusion_title]', $out );
 	}
 
+	public function test_image_elements_take_a_web_address_as_content() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => ' https://example.com/new.jpg ' ],
+				[ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '7|full' ], 'text' => 'https://example.com/b.jpg' ],
+			]
+		);
+		$this->assertStringContainsString( '[fusion_imageframe image_id="14|full"]https://example.com/new.jpg[/fusion_imageframe]', $out );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="7|full"]https://example.com/b.jpg[/fusion_imageframe]', $out );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'javascript:alert(1)' ] ], 'needs a web address' );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://x.com/a.jpg][fusion_code]' ] ], 'needs a web address' );
+	}
+
+	private function with_media( array $operations ) {
+		$media = function ( $id ) {
+			return 87 === $id ? 'https://example.com/award.jpg' : null;
+		};
+		$ids   = function ( $url ) {
+			return 'https://example.com/award.jpg' === $url ? 87 : null;
+		};
+		return ( new EditCompiler( $this->registry(), null, null, $media, $ids ) )->apply( self::PAGE, $operations );
+	}
+
+	public function test_setting_an_image_id_shows_that_media_library_image() {
+		$out = $this->with_media( [ [ 'op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '87|full' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_inserted_image_gets_its_picture_from_the_id() {
+		$out = $this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '87|full' ] ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_an_image_set_by_url_gets_its_media_library_id() {
+		$out = $this->with_media( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://example.com/award.jpg' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+
+		$out = $this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe', 'text' => 'https://example.com/award.jpg' ] ] );
+		$this->assertStringContainsString( '[fusion_imageframe image_id="87|full"]https://example.com/award.jpg[/fusion_imageframe]', $out );
+	}
+
+	public function test_a_new_image_needs_a_picture() {
+		try {
+			$this->with_media( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_imageframe' ] ] );
+			$this->fail( 'Expected an empty image to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'needs a picture', $e->getMessage() );
+		}
+	}
+
+	public function test_an_image_url_must_be_in_the_media_library() {
+		try {
+			$this->with_media( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'https://elsewhere.com/x.jpg' ] ] );
+			$this->fail( 'Expected the URL to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'is not in the media library', $e->getMessage() );
+		}
+	}
+
+	public function test_an_image_id_must_be_in_the_media_library() {
+		try {
+			$this->with_media( [ [ 'op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '5|full' ] ] );
+			$this->fail( 'Expected the id to be refused.' );
+		} catch ( EditException $e ) {
+			$this->assertStringContainsString( 'no image with id 5', $e->getMessage() );
+		}
+	}
+
 	public function test_replace_text_needs_a_text_setting() {
-		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'x' ] ], 'fusion_imageframe has no editable text' );
+		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.1.0', 'text' => 'x' ] ], 'fusion_imageframe needs a web address' );
 		$this->assertRejected( [ [ 'op' => 'replace_text', 'target' => '0.0.0', 'text' => 'x' ] ], 'has no editable text' );
 	}
 
@@ -138,15 +206,63 @@ class EditCompilerTest extends TestCase {
 	}
 
 	public function test_insert_appends_by_default_and_builds_structure() {
+		// A container left empty gets a row and a full-width column, as in Avada Builder.
 		$out = $this->apply( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container' ] ] );
-		$this->assertStringEndsWith( '[/fusion_builder_container][fusion_builder_container][/fusion_builder_container]', $out );
+		$this->assertStringEndsWith( '[/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+	}
+
+	public function test_refs_build_a_whole_new_section_in_one_list() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'insert_element', 'parent' => '', 'index' => 0, 'type' => 'fusion_builder_container', 'ref' => 'box' ],
+				[ 'op' => 'insert_element', 'parent' => 'box', 'type' => 'fusion_builder_row', 'ref' => 'row' ],
+				[ 'op' => 'insert_element', 'parent' => 'row', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_2' ], 'ref' => 'left' ],
+				[ 'op' => 'insert_element', 'parent' => 'row', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_2' ] ],
+				[ 'op' => 'insert_element', 'parent' => 'left', 'type' => 'fusion_title', 'text' => 'New' ],
+				[ 'op' => 'replace_text', 'target' => '0.0.0.0', 'text' => 'Old ids still work' ],
+			]
+		);
+		$this->assertStringStartsWith(
+			'[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_2"][fusion_title]New[/fusion_title][/fusion_builder_column]'
+			. '[fusion_builder_column type="1_2"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]',
+			$out
+		);
+		$this->assertStringContainsString( ']Old ids still work[/fusion_title]', $out );
+	}
+
+	public function test_refs_must_be_names_and_unique() {
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => '0.1' ] ], 'must start with a letter' );
+		$this->assertRejected(
+			[
+				[ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => 'a' ],
+				[ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_builder_container', 'ref' => 'a' ],
+			],
+			'already used'
+		);
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => 'nope', 'type' => 'fusion_title' ] ], 'No element with id "nope"' );
 	}
 
 	public function test_insert_checks_element_and_place() {
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_unknown' ] ], 'Unknown element' );
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_title' ] ], 'cannot be placed in the page root' );
-		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_builder_column' ] ], 'cannot be placed in fusion_builder_container' );
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_builder_container' ] ], 'cannot be placed in fusion_builder_column' );
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_title' ] ], 'must go in one of the 2 columns of this row' );
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_title', 'attrs' => [ 'bad' => '1' ] ] ], 'has no setting "bad"' );
+	}
+
+	public function test_content_put_in_an_empty_container_gets_a_row_and_column() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '14|full' ], 'text' => 'https://example.com/b.jpg' ],
+			],
+			'[fusion_builder_container][/fusion_builder_container]'
+		);
+		$this->assertSame( '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][fusion_imageframe image_id="14|full"]https://example.com/b.jpg[/fusion_imageframe][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+	}
+
+	public function test_a_column_put_in_a_container_goes_into_its_only_row() {
+		$out = $this->apply( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_3' ] ] ] );
+		$this->assertStringEndsWith( '[/fusion_builder_column][fusion_builder_column type="1_3"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
 	}
 
 	public function test_remove_element() {

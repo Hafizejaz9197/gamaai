@@ -70,10 +70,12 @@ class SaasClient {
 	 * @param array<string,array<string,mixed>>   $elements    Element settings.
 	 * @param string|null                         $scope       Which part of the page $sections is, when not all of it.
 	 * @param array<string,mixed>                 $stats       Context sizes, logged by the service.
+	 * @param array<int,array<string,mixed>>      $media       Media library images the AI may use.
+	 * @param string|null                         $image       Picture the editor attached, as a data URL.
 	 * @return array<string,mixed> summary, operations, usage.
 	 * @throws SaasException When the service refuses or cannot be reached.
 	 */
-	public function request_edit( $page_id, $instruction, array $sections, array $elements, $scope = null, array $stats = [] ) {
+	public function request_edit( $page_id, $instruction, array $sections, array $elements, $scope = null, array $stats = [], array $media = [], $image = null ) {
 		$body = [
 			'page_id'     => (int) $page_id,
 			'instruction' => (string) $instruction,
@@ -85,6 +87,12 @@ class SaasClient {
 		}
 		if ( $stats ) {
 			$body['context_stats'] = $stats;
+		}
+		if ( $media ) {
+			$body['media'] = $media;
+		}
+		if ( null !== $image ) {
+			$body['image'] = (string) $image;
 		}
 		return $this->post_json( '/api/v1/site/edit-requests', $body );
 	}

@@ -52,7 +52,7 @@ class TestRegistry {
 				],
 				'fusion_builder_row'       => [],
 				'fusion_builder_column'    => [
-					[ 'type' => 'textfield', 'param_name' => 'type', 'value' => '1_1' ],
+					[ 'type' => 'column_width', 'param_name' => 'type', 'default' => '0' ], // As Avada 3.15.6 maps it.
 					$visibility,
 					[ 'type' => 'colorpickeralpha', 'param_name' => 'background_color', 'default' => '' ],
 				],
@@ -71,6 +71,14 @@ class TestRegistry {
 					[ 'type' => 'textfield', 'param_name' => 'element_content', 'value' => 'Button' ],
 					[ 'type' => 'link_selector', 'param_name' => 'link', 'default' => '' ],
 					[ 'type' => 'colorpickeralpha', 'param_name' => 'button_gradient_top_color', 'default' => '' ],
+					$visibility,
+				],
+				'fusion_imageframe'        => [
+					[ 'type' => 'upload', 'param_name' => 'element_content', 'value' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'image_id', 'default' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'alt', 'default' => '' ],
+					[ 'type' => 'textfield', 'param_name' => 'max_width', 'default' => '' ],
+					[ 'type' => 'radio_button_set', 'param_name' => 'align', 'value' => [ 'none' => 'N', 'left' => 'L', 'center' => 'C', 'right' => 'R' ], 'default' => 'none' ],
 					$visibility,
 				],
 			]

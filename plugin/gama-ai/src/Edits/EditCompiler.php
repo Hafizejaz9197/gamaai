@@ -21,13 +21,17 @@ use GamaAI\Avada\ShortcodeParser;
  *
  * - replace_text     { target, text }
  * - set_attribute    { target, name, value }
- * - insert_element   { parent, index?, type, attrs?, text? }   parent "" = page root
+ * - insert_element   { parent, index?, type, attrs?, text?, ref? }   parent "" = page root
  * - remove_element   { target }
  * - move_element     { target, index }                          within the same parent
  * - duplicate_element { target }                                 copy placed right after it
  *
  * Ids always refer to the page as the model showed it, so earlier
- * operations in the same list do not shift them. Indexes for insert and
+ * operations in the same list do not shift them. An inserted element can
+ * be given a `ref` name, which later operations in the list use as a
+ * `parent` or `target`, so a whole new section (container, row, columns,
+ * content) can be built in one list. A new container or row left without
+ * children gets Avada's basic structure: a row, and a full-width column. Indexes for insert and
  * move count the parent's elements at the time the operation runs. The
  * operations are all-or-nothing: the first invalid one throws and no
  * markup is returned.
@@ -53,6 +57,9 @@ class EditCompiler {
 	/** Setting types whose element_content may be replaced with text. */
 	const TEXT_TYPES = [ 'tinymce', 'textarea', 'textfield' ];
 
+	/** Setting types whose element_content is a file URL, such as an image element's image. */
+	const URL_TYPES = [ 'upload' ];
+
 	/** @var Registry */
 	private $registry;
 
@@ -61,6 +68,12 @@ class EditCompiler {
 
 	/** @var callable(string,array):string */
 	private $sanitize_attr;
+
+	/** @var callable(int):(string|null)|null */
+	private $media_url;
+
+	/** @var callable(string):(int|null)|null */
+	private $media_id;
 
 	/** @var \SplObjectStorage Node => parent Node. */
 	private $parents;
@@ -71,20 +84,37 @@ class EditCompiler {
 	/** @var Node */
 	private $root;
 
+	/** @var array<string,Node> Elements inserted in this run, by their ref name. */
+	private $refs = [];
+
+	/** @var \SplObjectStorage Elements inserted in this run. */
+	private $inserted;
+
+	/** Children a new structural element gets when it is left empty. */
+	const SCAFFOLD = [
+		'fusion_builder_container' => [ 'fusion_builder_row', [] ],
+		'fusion_builder_row'       => [ 'fusion_builder_column', [ 'type' => '1_1' ] ],
+		'fusion_builder_row_inner' => [ 'fusion_builder_column_inner', [ 'type' => '1_1' ] ],
+	];
+
 	/**
 	 * Constructor.
 	 *
 	 * @param Registry      $registry      Avada registry of the running builder version.
 	 * @param callable|null $sanitize_text Cleans element text (HTML allowed), e.g. wp_kses_post.
 	 * @param callable|null $sanitize_attr Cleans a setting value; receives the value and the registry param.
+	 * @param callable|null $media_url     Given a media library id, returns that image's URL or null.
+	 * @param callable|null $media_id      Given an image URL, returns its media library id or null.
 	 */
-	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null ) {
+	public function __construct( Registry $registry, $sanitize_text = null, $sanitize_attr = null, $media_url = null, $media_id = null ) {
 		$identity            = function ( $value ) {
 			return $value;
 		};
 		$this->registry      = $registry;
 		$this->sanitize_text = $sanitize_text ? $sanitize_text : $identity;
 		$this->sanitize_attr = $sanitize_attr ? $sanitize_attr : $identity;
+		$this->media_url     = $media_url;
+		$this->media_id      = $media_id;
 	}
 
 	/**
@@ -105,8 +135,10 @@ class EditCompiler {
 
 		$this->root    = ( new ShortcodeParser() )->parse( $content );
 		$this->parents = new \SplObjectStorage();
-		$this->removed = new \SplObjectStorage();
-		$ids           = [];
+		$this->removed  = new \SplObjectStorage();
+		$this->inserted = new \SplObjectStorage();
+		$this->refs     = [];
+		$ids            = [];
 		$this->index( $this->root, '', $ids );
 
 		foreach ( array_values( $operations ) as $i => $op ) {
@@ -115,6 +147,10 @@ class EditCompiler {
 			} catch ( EditException $e ) {
 				throw new EditException( 'Operation ' . $i . ': ' . $e->getMessage(), $i );
 			}
+		}
+
+		foreach ( $this->inserted as $node ) {
+			$this->scaffold( $node );
 		}
 
 		$serializer = new Serializer();
@@ -137,13 +173,16 @@ class EditCompiler {
 		$name = isset( $op['op'] ) ? $op['op'] : '';
 		switch ( $name ) {
 			case 'replace_text':
-				$this->replace_text( $this->target( $op, $ids ), $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) );
+				$node = $this->target( $op, $ids );
+				$this->replace_text( $node, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) );
+				$this->link_media_url( $node );
 				return;
 			case 'set_attribute':
 				$node  = $this->target( $op, $ids );
 				$key   = $this->string_field( $op, 'name', 100 );
 				$value = $this->string_field( $op, 'value', self::MAX_VALUE_LENGTH );
 				$node->set_attr( $key, $this->checked_attr( $node->name, $key, $value ) );
+				$this->link_media( $node );
 				return;
 			case 'insert_element':
 				$this->insert( $op, $ids );
@@ -176,7 +215,7 @@ class EditCompiler {
 		if ( $node->shortcode_children() ) {
 			throw new EditException( $node->name . ' holds other elements; edit those instead.' );
 		}
-		$node->children = [ Node::text( $this->clean_text( $text ) ) ];
+		$node->children = [ Node::text( $this->clean_content( $node->name, $text ) ) ];
 		if ( null === $node->raw_close ) {
 			$node->raw_close = '[/' . $node->name . ']';
 			$node->dirty     = true; // Drops a self-closing slash from the opening tag.
@@ -193,12 +232,13 @@ class EditCompiler {
 	 */
 	private function insert( array $op, array $ids ) {
 		$type = $this->string_field( $op, 'type', 100 );
-		if ( ! $this->registry->has( $type ) ) {
+		if ( ! $this->known( $type ) ) {
 			throw new EditException( 'Unknown element "' . $type . '".' );
 		}
 
 		$parent_id = isset( $op['parent'] ) ? (string) $op['parent'] : '';
 		$parent    = '' === $parent_id ? $this->root : $this->lookup( $parent_id, $ids );
+		$parent    = $this->layout_parent( $type, $parent );
 		$this->require_placement( $type, $parent );
 
 		$attrs = isset( $op['attrs'] ) ? $op['attrs'] : [];
@@ -218,11 +258,126 @@ class EditCompiler {
 		$node->dirty     = true;
 		if ( isset( $op['text'] ) ) {
 			$this->require_text_param( $type );
-			$node->children[] = Node::text( $this->clean_text( $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
+			$node->children[] = Node::text( $this->clean_content( $type, $this->string_field( $op, 'text', self::MAX_TEXT_LENGTH ) ) );
+		}
+
+		if ( isset( $checked['image_id'] ) ) {
+			$this->link_media( $node );
+		} elseif ( isset( $op['text'] ) ) {
+			$this->link_media_url( $node );
+		}
+		$params = $this->registry->params( $type );
+		if ( null !== $this->media_url && isset( $params['element_content'] ) && in_array( $params['element_content']['type'], self::URL_TYPES, true )
+			&& ! $node->children ) {
+			// Avada shows an image element with no picture as nothing at all on the page.
+			throw new EditException( 'A new ' . $type . ' needs a picture: set its image_id to a media library image, such as "87|full".' );
 		}
 
 		$index = array_key_exists( 'index', $op ) ? $this->index_field( $op ) : PHP_INT_MAX;
 		$this->place( $parent, $node, $index );
+		$this->inserted->attach( $node );
+
+		if ( isset( $op['ref'] ) && '' !== $op['ref'] ) {
+			$ref = $this->string_field( $op, 'ref', 40 );
+			if ( ! preg_match( '/^[a-z][a-z0-9_-]*$/i', $ref ) ) {
+				throw new EditException( '"ref" must start with a letter and use only letters, digits, - and _.' );
+			}
+			if ( isset( $this->refs[ $ref ] ) ) {
+				throw new EditException( 'The ref "' . $ref . '" is already used in this list.' );
+			}
+			$this->refs[ $ref ] = $node;
+		}
+	}
+
+	/**
+	 * Where an element really goes when it is placed one or two layout
+	 * levels too high, such as an image put straight into a container or a
+	 * column into a container. Like Avada Builder, the missing row and
+	 * column are used when there is exactly one, and added (a full-width
+	 * column) when there is none. Several of them are a question of which
+	 * one, so that is an error instead of a guess.
+	 *
+	 * @param string $type   Element being inserted.
+	 * @param Node   $parent Parent asked for.
+	 * @return Node Parent to use.
+	 * @throws EditException When the right row or column is not clear.
+	 */
+	private function layout_parent( $type, Node $parent ) {
+		$allowed = isset( self::STRUCTURE[ $type ] ) ? self::STRUCTURE[ $type ] : self::CONTENT_PARENTS;
+		while ( $parent !== $this->root && ! in_array( $parent->name, $allowed, true ) && isset( self::SCAFFOLD[ $parent->name ] ) ) {
+			list( $layer, $attrs ) = self::SCAFFOLD[ $parent->name ];
+			if ( ! $this->known( $layer ) ) {
+				break;
+			}
+			$existing = array_values(
+				array_filter(
+					$parent->shortcode_children(),
+					function ( Node $child ) use ( $layer ) {
+						return $child->name === $layer;
+					}
+				)
+			);
+			if ( count( $existing ) > 1 ) {
+				$word = false !== strpos( $layer, 'column' ) ? 'columns' : 'rows';
+				throw new EditException( $type . ' must go in one of the ' . count( $existing ) . ' ' . $word . ' of this ' . str_replace( 'fusion_builder_', '', $parent->name ) . '; give that ' . substr( $word, 0, -1 ) . ' as the parent.' );
+			}
+			if ( $existing ) {
+				$parent = $existing[0];
+				continue;
+			}
+			$checked = [];
+			foreach ( $attrs as $key => $value ) {
+				$checked[ $key ] = $this->checked_attr( $layer, $key, $value );
+			}
+			$child            = Node::shortcode( $layer, '', $checked );
+			$child->raw_close = '[/' . $layer . ']';
+			$child->dirty     = true;
+			$this->place( $parent, $child, PHP_INT_MAX );
+			$parent = $child;
+		}
+		return $parent;
+	}
+
+	/**
+	 * Whether an element type exists. Avada does not map
+	 * fusion_builder_row with fusion_builder_map() (it has no settings of
+	 * its own in Avada 3.15.6), so the layout types are known even when the
+	 * registry lacks them.
+	 *
+	 * @param string $type Shortcode name.
+	 * @return bool
+	 */
+	private function known( $type ) {
+		return $this->registry->has( $type ) || isset( self::STRUCTURE[ $type ] );
+	}
+
+	/**
+	 * Give a new container or row that was left empty Avada's basic
+	 * structure, as Avada Builder does when one is added: a row, and in it
+	 * one full-width column. Without it the container shows nothing and
+	 * nothing can be placed in it.
+	 *
+	 * @param Node $node Inserted element.
+	 * @return void
+	 * @throws EditException When the registry does not know the column width setting.
+	 */
+	private function scaffold( Node $node ) {
+		if ( $this->removed->contains( $node ) || ! isset( self::SCAFFOLD[ $node->name ] ) || $node->shortcode_children() ) {
+			return;
+		}
+		list( $type, $attrs ) = self::SCAFFOLD[ $node->name ];
+		if ( ! $this->known( $type ) ) {
+			return;
+		}
+		$checked = [];
+		foreach ( $attrs as $key => $value ) {
+			$checked[ $key ] = $this->checked_attr( $type, $key, $value );
+		}
+		$child            = Node::shortcode( $type, '', $checked );
+		$child->raw_close = '[/' . $type . ']';
+		$child->dirty     = true;
+		$this->place( $node, $child, PHP_INT_MAX );
+		$this->scaffold( $child );
 	}
 
 	/**
@@ -371,7 +526,7 @@ class EditCompiler {
 	 */
 	private function require_text_param( $type ) {
 		$params = $this->registry->params( $type );
-		if ( ! isset( $params['element_content'] ) || ! in_array( $params['element_content']['type'], self::TEXT_TYPES, true ) ) {
+		if ( ! isset( $params['element_content'] ) || ! in_array( $params['element_content']['type'], array_merge( self::TEXT_TYPES, self::URL_TYPES ), true ) ) {
 			throw new EditException( ( $type ? $type : 'This element' ) . ' has no editable text.' );
 		}
 	}
@@ -390,6 +545,82 @@ class EditCompiler {
 		if ( ! in_array( $parent_type, $allowed, true ) ) {
 			throw new EditException( $type . ' cannot be placed in ' . ( '' === $parent_type ? 'the page root' : $parent_type ) . '.' );
 		}
+	}
+
+	/**
+	 * Clean an element's content: text (HTML allowed) for text elements, or
+	 * a web address for elements whose content is a file, such as the image
+	 * of fusion_imageframe.
+	 *
+	 * @param string $type Element.
+	 * @param string $text Content.
+	 * @return string
+	 * @throws EditException When a file element gets something other than a web address.
+	 */
+	private function clean_content( $type, $text ) {
+		$param = $this->registry->params( $type )['element_content'];
+		if ( ! in_array( $param['type'], self::URL_TYPES, true ) ) {
+			return $this->clean_text( $text );
+		}
+		$url = trim( $text );
+		if ( ! preg_match( '#^https?://[^\s\[\]"<>]+$#i', $url ) ) {
+			throw new EditException( $type . ' needs a web address (https://...) as its content.' );
+		}
+		return (string) call_user_func( $this->sanitize_attr, $url, $param );
+	}
+
+	/**
+	 * Keep an image element's picture and its media library id together:
+	 * when image_id ("87|full") is set, the picture becomes that media
+	 * library image, as when it is chosen in Avada Builder. The id is the
+	 * source of truth, so an AI that sets only one of them still leaves a
+	 * working image, and an id that is not in the media library is refused.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 * @throws EditException When the id is not an image in the media library.
+	 */
+	private function link_media( Node $node ) {
+		$params = $this->registry->params( $node->name );
+		if ( null === $this->media_url || ! isset( $node->attrs['image_id'], $params['element_content'] )
+			|| ! in_array( $params['element_content']['type'], self::URL_TYPES, true ) ) {
+			return;
+		}
+		if ( ! preg_match( '/^(\d+)(?:\|[a-z0-9_-]*)?$/i', $node->attrs['image_id'], $m ) ) {
+			if ( '' === $node->attrs['image_id'] ) {
+				return;
+			}
+			throw new EditException( 'image_id must be a media library id such as "87|full".' );
+		}
+		$url = call_user_func( $this->media_url, (int) $m[1] );
+		if ( ! is_string( $url ) || '' === $url ) {
+			throw new EditException( 'There is no image with id ' . $m[1] . ' in the media library.' );
+		}
+		$node->children = [ Node::text( $this->clean_content( $node->name, $url ) ) ];
+	}
+
+	/**
+	 * The other direction of link_media(): an image element whose picture
+	 * was set by URL gets that image's media library id. Avada Builder
+	 * shows an image element without an id as its bare URL, so a URL that
+	 * is not in the media library is refused.
+	 *
+	 * @param Node $node Element.
+	 * @return void
+	 * @throws EditException When the URL is not a media library image.
+	 */
+	private function link_media_url( Node $node ) {
+		$params = $this->registry->params( $node->name );
+		if ( null === $this->media_id || ! isset( $params['element_content'], $params['image_id'] )
+			|| ! in_array( $params['element_content']['type'], self::URL_TYPES, true ) ) {
+			return;
+		}
+		$url = trim( isset( $node->children[0] ) ? $node->children[0]->raw : '' );
+		$id  = call_user_func( $this->media_id, $url );
+		if ( ! is_int( $id ) || $id < 1 ) {
+			throw new EditException( 'The image ' . $url . ' is not in the media library. Use an image from the media library by its id (image_id "ID|full").' );
+		}
+		$node->set_attr( 'image_id', $id . '|full' );
 	}
 
 	/**
@@ -424,6 +655,12 @@ class EditCompiler {
 	 * @throws EditException When it is missing or was removed.
 	 */
 	private function lookup( $id, array $ids ) {
+		if ( isset( $this->refs[ $id ] ) ) {
+			if ( $this->removed->contains( $this->refs[ $id ] ) ) {
+				throw new EditException( 'Element "' . $id . '" was removed by an earlier operation.' );
+			}
+			return $this->refs[ $id ];
+		}
 		if ( ! isset( $ids[ $id ] ) ) {
 			throw new EditException( 'No element with id "' . $id . '".' );
 		}

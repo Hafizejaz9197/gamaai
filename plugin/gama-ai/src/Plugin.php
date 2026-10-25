@@ -13,6 +13,7 @@ use GamaAI\Drafts\WpPostStore;
 use GamaAI\Frontend\CommandBar;
 use GamaAI\Rest\Controller;
 use GamaAI\Saas\SaasClient;
+use GamaAI\Tasks\TaskStore;
 
 /**
  * Plugin bootstrap.
@@ -26,6 +27,7 @@ class Plugin {
 	 */
 	public function boot() {
 		add_action( 'init', [ $this, 'register_snapshot_type' ] );
+		add_action( 'init', [ TaskStore::class, 'register_type' ] );
 		add_action(
 			'rest_api_init',
 			function () {

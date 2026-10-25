@@ -29,11 +29,35 @@ class AnthropicEditPlannerTest extends TestCase
         $this->assertSame('{"size":"3"}', json_encode($operations[1]['attrs']));
     }
 
+    public function test_parse_reads_attrs_written_as_a_plain_object(): void
+    {
+        [, $operations] = AnthropicEditPlanner::parse('{"summary":"","operations":[{"op":"insert_element","parent":"2.0.1","type":"fusion_imageframe","attrs":{"image_id":"87|full"}}]}');
+
+        $this->assertEquals((object) ['image_id' => '87|full'], $operations[0]['attrs']);
+    }
+
     public function test_parse_keeps_empty_attrs_as_an_object(): void
     {
         [, $operations] = AnthropicEditPlanner::parse('{"summary":"","operations":[{"op":"insert_element","parent":"","type":"fusion_builder_container"}]}');
 
         $this->assertSame('{}', json_encode($operations[0]['attrs']));
+    }
+
+    public function test_parse_reads_setting_changes_written_other_ways(): void
+    {
+        $expected = ['op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '87|full'];
+        foreach ([
+            ['op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'image_id', 'value' => '87|full'],
+            ['op' => 'set_attribute', 'target' => '0.0.1.0', 'name' => 'set_attribute', 'attribute' => 'image_id', 'value' => '87|full'],
+            ['op' => 'set_attribute', 'target' => '0.0.1.0', 'setting' => 'image_id', 'value' => '87|full'],
+            ['op' => 'set_attribute', 'target' => '0.0.1.0', 'image_id' => '87|full'],
+        ] as $op) {
+            [, $operations] = AnthropicEditPlanner::parse(json_encode(['summary' => 's', 'operations' => [$op]]));
+            $this->assertSame($expected, $operations[0]);
+        }
+
+        $this->expectException(EditPlannerException::class);
+        AnthropicEditPlanner::parse('{"summary":"s","operations":[{"op":"set_attribute","target":"0","name":"set_attribute","value":"1"}]}');
     }
 
     public function test_parse_rejects_bad_answers(): void

@@ -121,4 +121,68 @@ class QuickEditsTest extends TestCase {
 		$this->assertSame( [], $result['operations'] );
 		$this->assertStringContainsString( 'only per screen size', $result['summary'] );
 	}
+
+	public function test_add_a_section_builds_container_row_and_columns_without_ai() {
+		$result = $this->handle( 'add a new section with 2 columns below the first section' );
+		$out    = $this->apply( $result );
+
+		$this->assertSame( 1, $result['operations'][0]['index'] );
+		$this->assertStringContainsString(
+			'[/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_2"][/fusion_builder_column][fusion_builder_column type="1_2"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_title]About us',
+			$out
+		);
+		$this->assertStringContainsString( 'below the 1st container', $result['summary'] );
+	}
+
+	public function test_add_a_section_on_an_empty_page_and_at_the_top() {
+		$empty = '[fusion_builder_container][/fusion_builder_container]';
+		$out   = $this->apply( $this->handle( 'create a simple container', $empty ), $empty );
+		$this->assertSame( $empty . '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+
+		$this->assertSame( 0, $this->handle( 'add a section at the top' )['operations'][0]['index'] );
+		$this->assertSame( 2, $this->handle( 'add a container above this', self::THREE, '2' )['operations'][0]['index'] );
+		$this->assertStringContainsString( 'Say which one', $this->handle( 'add a section below the container' )['summary'] );
+	}
+
+	public function test_adding_with_content_goes_to_the_ai() {
+		$this->assertNull( $this->handle( 'add a section with a heading and a button' ) );
+		$this->assertNull( $this->handle( 'i just deleted that container. create a new one with 2 sub containers' ) );
+	}
+
+	public function test_add_a_section_works_when_avada_does_not_map_the_row() {
+		$registry = \GamaAI\Avada\Registry::from_array(
+			[
+				'builder_version' => '3.15.6',
+				'elements'        => array_diff_key( TestRegistry::make()->to_array()['elements'], [ 'fusion_builder_row' => true ] ),
+			]
+		);
+		$result = ( new QuickEdits( $registry ) )->handle( 'add a section', ( new ShortcodeParser() )->parse( self::ONE ) );
+		$out    = ( new EditCompiler( $registry ) )->apply( self::ONE, $result['operations'] );
+
+		$this->assertStringEndsWith( '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+		$this->assertArrayHasKey( 'fusion_builder_row', \GamaAI\Avada\ElementSettings::for_request( $registry, [], 'add a row' ) );
+	}
+
+	const COLUMN = '[fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_title]Hi[/fusion_title][fusion_text]Body[/fusion_text][fusion_button]Go[/fusion_button][fusion_imageframe image_id="87|full"]https://example.com/a.jpg[/fusion_imageframe][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]';
+
+	public function test_move_above_a_named_sibling_runs_without_the_ai() {
+		$result = $this->handle( 'Move this image above the heading of this container.', self::COLUMN, '0.0.0.3' );
+
+		$this->assertSame( [ [ 'op' => 'move_element', 'target' => '0.0.0.3', 'index' => 0 ] ], $result['operations'] );
+		$this->assertStringStartsWith( '[fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_imageframe', $this->apply( $result, self::COLUMN ) );
+	}
+
+	public function test_move_below_top_bottom_up_and_down() {
+		$this->assertSame( 1, $this->handle( 'move the heading below the text', self::COLUMN )['operations'][0]['index'] );
+		$this->assertSame( 3, $this->handle( 'move the heading to the bottom', self::COLUMN )['operations'][0]['index'] );
+		$this->assertSame( 2, $this->handle( 'move this up', self::COLUMN, '0.0.0.3' )['operations'][0]['index'] );
+		$this->assertSame( 2, $this->handle( 'move the text below the button', self::COLUMN )['operations'][0]['index'] );
+	}
+
+	public function test_move_explains_instead_of_guessing() {
+		$this->assertSame( [], $this->handle( 'move the heading above the text', self::COLUMN )['operations'] );
+		$this->assertStringContainsString( 'already there', $this->handle( 'move the heading above the text', self::COLUMN )['summary'] );
+		$this->assertStringContainsString( 'no image next to it', $this->handle( 'move the heading above the image', self::ONE )['summary'] );
+		$this->assertNull( $this->handle( 'move the heading somewhere nicer', self::COLUMN ) );
+	}
 }

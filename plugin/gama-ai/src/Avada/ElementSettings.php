@@ -68,8 +68,9 @@ class ElementSettings {
 		}
 		$words = self::words( $instruction );
 		if ( array_intersect( $words, self::INSERT_WORDS ) ) {
-			$types = array_merge( $types, self::INSERTABLE );
+			$types = array_merge( $types, self::INSERTABLE, self::STRUCTURE );
 		}
+		$types = array_merge( $types, self::named_types( $registry, $words ) );
 		$keys       = self::keys( $words );
 		$responsive = (bool) array_intersect( $words, [ 'mobile', 'tablet', 'phone', 'phones', 'responsive', 'screen', 'screens' ] );
 		$hover      = in_array( 'hover', $words, true );
@@ -100,11 +101,15 @@ class ElementSettings {
 		$out = [];
 		foreach ( array_unique( $types ) as $type ) {
 			if ( ! $registry->has( $type ) ) {
+				if ( in_array( $type, self::STRUCTURE, true ) ) {
+					$out[ $type ] = []; // A layout type without settings of its own, such as fusion_builder_row.
+				}
 				continue;
 			}
 			$settings = [];
 			foreach ( $registry->params( $type ) as $name => $param ) {
-				if ( 'element_content' === $name || ( isset( $scores[ $type ][ $name ] ) && $scores[ $type ][ $name ] === $best ) ) {
+				if ( 'element_content' === $name || ( isset( self::ALWAYS[ $type ] ) && in_array( $name, self::ALWAYS[ $type ], true ) )
+					|| ( isset( $scores[ $type ][ $name ] ) && $scores[ $type ][ $name ] === $best ) ) {
 					$settings[ $name ] = isset( $param['options'] ) ? $param['options'] : $param['type'];
 				}
 			}
@@ -112,6 +117,90 @@ class ElementSettings {
 		}
 		ksort( $out );
 		return $out;
+	}
+
+	/** Layout elements a request that adds something may need: sections, rows and columns, also nested. */
+	const STRUCTURE = [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_builder_row_inner', 'fusion_builder_column_inner' ];
+
+	/** Settings always sent for a type: a column's width, an image's media library id and alt text. */
+	const ALWAYS = [
+		'fusion_builder_column'       => [ 'type' ],
+		'fusion_builder_column_inner' => [ 'type' ],
+		'fusion_imageframe'           => [ 'image_id', 'alt' ],
+	];
+
+	/** Everyday words for Avada elements whose names differ. Only types the registry has are used. */
+	const TYPE_WORDS = [
+		'image'        => [ 'fusion_imageframe' ],
+		'images'       => [ 'fusion_imageframe' ],
+		'picture'      => [ 'fusion_imageframe' ],
+		'pictures'     => [ 'fusion_imageframe' ],
+		'photo'        => [ 'fusion_imageframe' ],
+		'photos'       => [ 'fusion_imageframe' ],
+		'logo'         => [ 'fusion_imageframe' ],
+		'heading'      => [ 'fusion_title' ],
+		'headline'     => [ 'fusion_title' ],
+		'title'        => [ 'fusion_title' ],
+		'paragraph'    => [ 'fusion_text' ],
+		'text'         => [ 'fusion_text' ],
+		'divider'      => [ 'fusion_separator' ],
+		'line'         => [ 'fusion_separator' ],
+		'list'         => [ 'fusion_checklist' ],
+		'bullets'      => [ 'fusion_checklist' ],
+		'icon'         => [ 'fusion_fontawesome' ],
+		'icons'        => [ 'fusion_fontawesome' ],
+		'video'        => [ 'fusion_youtube', 'fusion_vimeo', 'fusion_video' ],
+		'youtube'      => [ 'fusion_youtube' ],
+		'vimeo'        => [ 'fusion_vimeo' ],
+		'tab'          => [ 'fusion_tabs' ],
+		'faq'          => [ 'fusion_accordion' ],
+		'toggle'       => [ 'fusion_accordion' ],
+		'toggles'      => [ 'fusion_accordion' ],
+		'testimonial'  => [ 'fusion_testimonials' ],
+		'review'       => [ 'fusion_testimonials' ],
+		'reviews'      => [ 'fusion_testimonials' ],
+		'counter'      => [ 'fusion_counters_box', 'fusion_counters_circle' ],
+		'counters'     => [ 'fusion_counters_box', 'fusion_counters_circle' ],
+		'progress'     => [ 'fusion_progress' ],
+		'social'       => [ 'fusion_social_links' ],
+		'map'          => [ 'fusion_map' ],
+		'pricing'      => [ 'fusion_pricing_table' ],
+		'slider'       => [ 'fusion_slider' ],
+		'carousel'     => [ 'fusion_images' ],
+		'spacer'       => [ 'fusion_separator' ],
+		'notice'       => [ 'fusion_alert' ],
+	];
+
+	/**
+	 * Element types a request names: by an everyday word ("image" for
+	 * fusion_imageframe) or by the type's own name without its prefix
+	 * ("gallery" for fusion_gallery, "separator" for fusion_separator).
+	 *
+	 * @param Registry $registry Registry.
+	 * @param string[] $words    Request words.
+	 * @return string[]
+	 */
+	private static function named_types( Registry $registry, array $words ) {
+		$types = [];
+		foreach ( $words as $word ) {
+			if ( isset( self::TYPE_WORDS[ $word ] ) ) {
+				$types = array_merge( $types, self::TYPE_WORDS[ $word ] );
+			}
+		}
+		foreach ( $registry->names() as $name ) {
+			$short = preg_replace( '/^(?:fusion_builder_|fusion_|awb_)/', '', $name );
+			if ( strlen( $short ) >= 4 && ( in_array( $short, $words, true ) || in_array( $short . 's', $words, true ) ) ) {
+				$types[] = $name;
+			}
+		}
+		return array_values(
+			array_filter(
+				array_unique( $types ),
+				function ( $type ) use ( $registry ) {
+					return $registry->has( $type );
+				}
+			)
+		);
 	}
 
 	/** Words that ask for a new element. */

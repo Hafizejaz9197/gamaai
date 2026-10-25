@@ -91,4 +91,57 @@ class AiContextTest extends TestCase {
 
 		$this->assertLessThan( ( $before['page_bytes'] + $before['settings_bytes'] ) / 3, $after['page_bytes'] + $after['settings_bytes'] );
 	}
+
+	public function test_building_a_new_section_sends_the_layout_types_and_column_widths() {
+		$elements = $this->build( 'create a new section with 2 sub containers and a heading', null, '[fusion_builder_container][/fusion_builder_container]' )['elements'];
+
+		foreach ( [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_title', 'fusion_text', 'fusion_button' ] as $type ) {
+			$this->assertArrayHasKey( $type, $elements );
+		}
+		$this->assertSame( 'column_width', $elements['fusion_builder_column']['type'] );
+	}
+
+	public function test_a_named_element_type_is_allowed_with_its_media_library_settings() {
+		$elements = $this->build( 'put an image in each column', null, QuickEditsTest::THREE )['elements'];
+
+		$this->assertArrayHasKey( 'fusion_imageframe', $elements );
+		$this->assertArrayHasKey( 'element_content', $elements['fusion_imageframe'] );
+		$this->assertArrayHasKey( 'image_id', $elements['fusion_imageframe'] );
+		$this->assertArrayHasKey( 'alt', $elements['fusion_imageframe'] );
+		$this->assertArrayNotHasKey( 'max_width', $elements['fusion_imageframe'] );
+	}
+
+	public function test_image_requests_get_recent_media_library_images() {
+		$asked   = null;
+		$media   = function ( $limit ) use ( &$asked ) {
+			$asked = $limit;
+			return [
+				[ 'id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team' ],
+				[ 'id' => 0, 'url' => 'https://example.com/broken.jpg' ],
+			];
+		};
+		$root    = ( new ShortcodeParser() )->parse( QuickEditsTest::THREE );
+		$context = ( new AiContext( TestRegistry::make(), $media ) )->build( 'add a photo from media to the first container', $root );
+
+		$this->assertSame( AiContext::MEDIA_LIMIT, $asked );
+		$this->assertSame( [ [ 'id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team' ] ], $context['media'] );
+		$this->assertSame( 1, $context['stats']['media_count'] );
+	}
+
+	public function test_other_requests_do_not_load_the_media_library() {
+		$media = function () {
+			throw new \RuntimeException( 'not needed' );
+		};
+		$root  = ( new ShortcodeParser() )->parse( QuickEditsTest::THREE );
+
+		$this->assertSame( [], ( new AiContext( TestRegistry::make(), $media ) )->build( 'make the heading blue', $root )['media'] );
+	}
+
+	public function test_a_pinned_element_is_named_for_the_ai() {
+		$content = '[fusion_builder_container][/fusion_builder_container][fusion_builder_container][fusion_builder_row][fusion_builder_column][fusion_imageframe][/fusion_imageframe][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]';
+		$scope   = $this->build( 'add any image from media here', '1.0.0.0', $content )['scope'];
+
+		$this->assertStringContainsString( 'pinned element 1.0.0.0 (fusion_imageframe, currently empty)', $scope );
+		$this->assertLessThan( 300, strlen( $scope ) );
+	}
 }

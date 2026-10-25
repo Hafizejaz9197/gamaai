@@ -52,6 +52,32 @@ class OpenAiCompatibleEditPlannerTest extends TestCase
             && str_contains($r['messages'][1]['content'], 'Rename it'));
     }
 
+    public function test_an_attached_image_is_sent_as_an_image_part(): void
+    {
+        Http::fake([self::URL => Http::response($this->answer('{"summary":"ok","operations":[]}'))]);
+
+        $this->planner()->plan('Make it look like this', [], [], image: 'data:image/jpeg;base64,AAAA');
+
+        Http::assertSent(fn (Request $r) => $r['messages'][1]['content'][0] === ['type' => 'image_url', 'image_url' => ['url' => 'data:image/jpeg;base64,AAAA']]
+            && str_contains($r['messages'][1]['content'][1]['text'], 'Make it look like this'));
+        $this->assertGreaterThan(
+            $this->planner()->estimateTokens('x', [], []),
+            $this->planner()->estimateTokens('x', [], [], image: 'data:image/jpeg;base64,AAAA'),
+        );
+    }
+
+    public function test_a_model_that_cannot_read_images_says_so(): void
+    {
+        Http::fake([self::URL => Http::response(['error' => ['message' => 'model does not support image input']], 400)]);
+
+        try {
+            $this->planner()->plan('x', [], [], image: 'data:image/png;base64,AAAA');
+            $this->fail('Expected an error.');
+        } catch (EditPlannerException $e) {
+            $this->assertStringContainsString('may not read images', $e->getMessage());
+        }
+    }
+
     public function test_strips_code_fences(): void
     {
         Http::fake([self::URL => Http::response($this->answer("```json\n{\"summary\":\"Nothing to do.\",\"operations\":[]}\n```"))]);

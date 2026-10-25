@@ -73,11 +73,21 @@ class SaasClientTest extends TestCase {
 
 	public function test_request_edit_sends_scope_and_context_sizes_when_given() {
 		$this->client( 200, [ 'summary' => 'Done', 'operations' => [] ] )
-			->request_edit( 11, 'x', [], [], 'Only the 2nd container of 3 is shown.', [ 'page_bytes' => 10 ] );
+			->request_edit( 11, 'x', [], [], 'Only the 2nd container of 3 is shown.', [ 'page_bytes' => 10 ], [ [ 'id' => 7, 'url' => 'https://example.com/a.jpg', 'title' => 'Team' ] ] );
 
 		$body = json_decode( $this->requests[0][1]['body'], true );
 		$this->assertSame( 'Only the 2nd container of 3 is shown.', $body['scope'] );
 		$this->assertSame( [ 'page_bytes' => 10 ], $body['context_stats'] );
+		$this->assertSame( 7, $body['media'][0]['id'] );
+		$this->assertArrayNotHasKey( 'image', $body );
+	}
+
+	public function test_request_edit_sends_an_attached_image() {
+		$this->client( 200, [ 'summary' => 'Done', 'operations' => [] ] )
+			->request_edit( 11, 'make it look like this', [], [], null, [], [], 'data:image/jpeg;base64,AAAA' );
+
+		$body = json_decode( $this->requests[0][1]['body'], true );
+		$this->assertSame( 'data:image/jpeg;base64,AAAA', $body['image'] );
 	}
 
 	public function test_rate_limits_keep_their_status_and_wait_time() {

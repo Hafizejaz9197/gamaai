@@ -25,6 +25,9 @@ class CommandBar {
 	/** @var DraftManager */
 	private $drafts;
 
+	/** @var ElementMarks */
+	private $marks;
+
 	/**
 	 * Constructor.
 	 *
@@ -32,6 +35,7 @@ class CommandBar {
 	 */
 	public function __construct( DraftManager $drafts ) {
 		$this->drafts = $drafts;
+		$this->marks  = new ElementMarks();
 	}
 
 	/**
@@ -42,6 +46,64 @@ class CommandBar {
 	public function register() {
 		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'admin_bar_menu', [ $this, 'admin_bar' ], 90 );
+		// Shortcodes run at the_content priority 11.
+		add_filter( 'the_content', [ $this, 'start_marks' ], 9 );
+		add_filter( 'the_content', [ $this, 'stop_marks' ], 12 );
+		add_filter( 'pre_do_shortcode_tag', [ $this, 'open_mark' ], PHP_INT_MAX, 2 );
+		add_filter( 'do_shortcode_tag', [ $this, 'close_mark' ], PHP_INT_MAX, 2 );
+	}
+
+	/**
+	 * Start marking elements when the page's own content is rendered for
+	 * an editor, and the layout on screen is the one edits change.
+	 *
+	 * @param string $content Content.
+	 * @return string Unchanged.
+	 */
+	public function start_marks( $content ) {
+		$context = $this->context();
+		$post    = get_queried_object();
+		if ( null !== $context && null !== $context['containers'] && $post instanceof \WP_Post
+			&& in_the_loop() && is_main_query() && (int) get_the_ID() === (int) $post->ID ) {
+			$this->marks->begin( $post->post_content );
+		}
+		return $content;
+	}
+
+	/**
+	 * Stop marking.
+	 *
+	 * @param string $content Content.
+	 * @return string Unchanged.
+	 */
+	public function stop_marks( $content ) {
+		$this->marks->end();
+		return $content;
+	}
+
+	/**
+	 * A shortcode starts rendering.
+	 *
+	 * @param false|string $value Short-circuit value of other filters.
+	 * @param string       $tag   Shortcode name.
+	 * @return false|string Unchanged.
+	 */
+	public function open_mark( $value, $tag ) {
+		if ( false === $value ) {
+			$this->marks->open( $tag );
+		}
+		return $value;
+	}
+
+	/**
+	 * A shortcode finished rendering.
+	 *
+	 * @param string $output HTML.
+	 * @param string $tag    Shortcode name.
+	 * @return string
+	 */
+	public function close_mark( $output, $tag ) {
+		return $this->marks->close( $output, $tag );
 	}
 
 	/**

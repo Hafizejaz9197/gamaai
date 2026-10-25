@@ -2,7 +2,7 @@
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.6.0
+Stable tag: 0.8.5
 License: GPLv2 or later
 
 AI-assisted editing for Avada websites.
@@ -21,6 +21,44 @@ discard, or undo a publish. All routes require a logged-in user with the
 matching WordPress capability.
 
 == Changelog ==
+
+= 0.8.5 =
+* "Move this image above the heading", "move the text below the button", "move the heading to the top / bottom" and "move this up / down" run without the AI, within the element's own column. No tokens; clear answers when the target is not clear.
+
+= 0.8.4 =
+* A new image element must come with a picture from the media library; an empty one is refused instead of being added.
+* The service reads new-element settings that AI models write as a plain object (they were dropped before, which is why images were added empty).
+
+= 0.8.3 =
+* Empty elements (such as an image with no picture yet) show as a dashed "Empty image" box for editors, so they can be pinned. Visitors see nothing.
+* The AI is told exactly which element is pinned and whether it is empty, and picks an image itself when asked for "any image".
+
+= 0.8.2 =
+* Image elements set by URL get the media library id of that image (image_id "ID|full"), because Avada shows an image element without an id as its bare URL text. URLs that are not in the media library are refused instead of breaking the page.
+
+= 0.8.1 =
+* Image elements: setting image_id ("87|full") now also sets the picture to that media library image, as choosing it in Avada Builder does. An id that is not an image in the media library is refused. Fixes broken images in one step.
+* The service reads setting changes that weaker AI models write in other shapes (such as {"attribute": "image_id"}) instead of failing.
+
+= 0.8.0 =
+* Pin tasks: "+ Pin" in the Gama AI panel, then click any heading, text, image, button, column or section on the page. "Save as task" keeps the request with its pin; the AI works on it only when you press Fix (or "Fix all open"). Tasks list (This page / All) with Open, Ready to review and Done; publishing the draft marks its tasks Done, discarding reopens them. Numbered pins show on the page.
+* While an editor views a page, each Avada element in the HTML carries data-gama-id so a click finds the exact element. Nothing is saved; visitors never get these marks.
+
+= 0.7.0 =
+* Attach a picture to a request: "Add image" in the Gama AI panel, or paste or drop a screenshot into the box. The picture is shrunk to 1280 px in the browser, sent to the AI with the request, and not saved anywhere. A request with a picture always goes to the AI.
+
+= 0.6.3 =
+* An element put straight into a container (or a column into a container) goes into its row and column, as in Avada Builder. A missing row or full-width column is added; when there are several, the request is refused with a question instead of a guess.
+
+= 0.6.2 =
+* AI requests may use any Avada element the request names ("image", "gallery", "video", "divider", "separator" and so on), not only titles, text and buttons. Only that element's needed settings are sent.
+* Requests about images include up to 12 recent images from the media library; the AI sets the image URL and its media library id ("ID|full"), so the image stays editable in Avada Builder.
+* Image elements only accept http(s) URLs as their image.
+
+= 0.6.1 =
+* New sections are never empty: a new container gets a row and a full-width column, as in Avada Builder.
+* insert_element takes a `ref`, so the AI can build a container with its row, columns and content in one request. Requests that add something now include the layout element types and column widths.
+* "Add a section" (also "with 2 columns", "at the top", "below the second section", "above this") runs without the AI.
 
 = 0.6.0 =
 * Fewer AI tokens per edit. Requests send only the settings the instruction names (a container alone has about 180 settings) and, when a section is picked or named, only that container.

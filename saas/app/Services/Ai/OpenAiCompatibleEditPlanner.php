@@ -25,10 +25,19 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
         private readonly int $maxTokens,
     ) {}
 
-    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null): EditPlan
+    public function plan(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): EditPlan
     {
-        $user = ['role' => 'user', 'content' => AnthropicEditPlanner::pageText($sections, $elements, $scope)
-            ."\n\nSite owner's request:\n".$instruction];
+        $text = AnthropicEditPlanner::pageText($sections, $elements, $scope, $media)
+            ."\n\nSite owner's request:\n".$instruction;
+        if ($image !== null) {
+            AnthropicEditPlanner::imageParts($image); // Checks it.
+            $user = ['role' => 'user', 'content' => [
+                ['type' => 'image_url', 'image_url' => ['url' => $image]],
+                ['type' => 'text', 'text' => $text],
+            ]];
+        } else {
+            $user = ['role' => 'user', 'content' => $text];
+        }
 
         // Providers that take a JSON schema get it once, as the answer format.
         // Plain JSON mode needs the schema spelled out in the instructions.
@@ -56,7 +65,11 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
             );
         }
         if ($response->failed()) {
-            throw new EditPlannerException($this->errorMessage($response), attempts: $attempts);
+            $message = $this->errorMessage($response);
+            if ($image !== null && $response->clientError() && ! in_array($response->status(), [401, 403], true)) {
+                $message .= ' The chosen AI model may not read images: choose one that does on the AI provider page, or send the request without the image.';
+            }
+            throw new EditPlannerException($message, attempts: $attempts);
         }
 
         $data = $response->json();
@@ -90,13 +103,13 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
         return $plan($summary, $operations);
     }
 
-    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null): int
+    public function estimateTokens(string $instruction, array $sections, array $elements, ?string $scope = null, array $media = [], ?string $image = null): int
     {
         // The JSON-mode fallback repeats the schema in the instructions, so count it.
         $input = strlen(AnthropicEditPlanner::SYSTEM_PROMPT) + 2 * strlen((string) json_encode(AnthropicEditPlanner::schema()))
-            + strlen($instruction) + strlen(AnthropicEditPlanner::pageText($sections, $elements, $scope));
+            + strlen($instruction) + strlen(AnthropicEditPlanner::pageText($sections, $elements, $scope, $media));
 
-        return intdiv($input, 3) + 1 + $this->maxTokens;
+        return intdiv($input, 3) + 1 + ($image !== null ? AnthropicEditPlanner::IMAGE_TOKENS : 0) + $this->maxTokens;
     }
 
     public function maxOutputTokens(): int
@@ -145,6 +158,7 @@ class OpenAiCompatibleEditPlanner implements EditPlanner
                 'max_tokens' => $this->maxTokens,
                 'response_format' => $format['type'],
                 'request_bytes' => strlen((string) json_encode($messages)),
+                'image' => is_array($messages[count($messages) - 1]['content'] ?? null),
                 'usage' => $response->successful() ? $response->json('usage') : null,
                 'retry_after' => $wait,
                 'rate_limit' => array_filter([

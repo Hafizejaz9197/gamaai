@@ -45,6 +45,11 @@ operation it returns 400 with the failing operation's index in
   They always refer to the page as the model showed it, so removing or
   inserting an element earlier in the list does not shift later ids.
   An element removed earlier in the list cannot be edited.
+- `insert_element` may carry a `ref` name (letters, digits, `-`, `_`, starting
+  with a letter). Later operations in the same list use it as `parent` or
+  `target`, so a new section (container, row, columns, content) is built in one
+  list. A new container or row left without children gets a row and a
+  full-width column (`type="1_1"`), as Avada Builder adds them.
 - `index` counts the parent's elements at the time the operation runs.
 - At most 50 operations per request; all of them apply, or none.
 - Square brackets in text are written as HTML entities, so text can never
@@ -64,3 +69,20 @@ operation it returns 400 with the failing operation's index in
   ]
 }
 ```
+
+
+## Layout levels
+
+An element inserted one or two layout levels too high (content into a container or row, a column into a container) goes into the only row or column there, or into a new row and full-width column when there is none. Several rows or columns there is an error.
+
+## Images
+
+`fusion_imageframe` keeps its image in `element_content` (setting type `upload`). `replace_text` on it only accepts an `http(s)` URL. Setting `image_id` to `"<attachment id>|full"` (with `set_attribute` or in `insert_element` attrs) also sets `element_content` to that attachment's URL; an id that is not an image in the media library is an error. The other way round, an image set by URL (`replace_text`, or `insert_element` text) gets the `image_id` of that media library image; Avada shows an image element without an id as bare URL text, so a URL that is not in the media library is an error. AI requests that mention images carry `media`: up to 12 recent media library images (`id`, `url`, `title`).
+
+## Attached pictures
+
+`POST /pages/{id}/ai-edit` takes an optional `image`: a `data:image/(png|jpeg|webp|gif);base64,…` URL of at most 2,000,000 characters (the command bar sends a JPEG of at most 1280 px). It is passed to the service and the AI to explain the request, counted as up to 1,600 input tokens in the estimate, and never stored; the ledger keeps only its size. The AI still answers with the operations above only.
+
+## Tasks
+
+A task is a request kept for later, pinned to the page or to one element (`POST /pages/{id}/tasks` with `instruction` and optional `target`). The pin stores the element's id, type and the first 60 characters of its text, so when ids move it is found again by type and text; if that fits no element or several, Fix refuses instead of guessing. Nothing goes to the AI until `POST /tasks/{id}/fix`, which runs the same path as `ai-edit` into the draft and sets the task to `review`. Publishing the draft moves `review` tasks to `done`; discarding moves them back to `open`. `GET /tasks[?page_id=]`, `POST /tasks/{id}` (`status` open or done) and `DELETE /tasks/{id}` manage the list.
