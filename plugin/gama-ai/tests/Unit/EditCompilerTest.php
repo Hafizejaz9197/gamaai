@@ -190,8 +190,24 @@ class EditCompilerTest extends TestCase {
 	public function test_insert_checks_element_and_place() {
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_unknown' ] ], 'Unknown element' );
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '', 'type' => 'fusion_title' ] ], 'cannot be placed in the page root' );
-		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_builder_column' ] ], 'cannot be placed in fusion_builder_container' );
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_builder_container' ] ], 'cannot be placed in fusion_builder_column' );
+		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_title' ] ], 'must go in one of the 2 columns of this row' );
 		$this->assertRejected( [ [ 'op' => 'insert_element', 'parent' => '0.0.0', 'type' => 'fusion_title', 'attrs' => [ 'bad' => '1' ] ] ], 'has no setting "bad"' );
+	}
+
+	public function test_content_put_in_an_empty_container_gets_a_row_and_column() {
+		$out = $this->apply(
+			[
+				[ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_imageframe', 'attrs' => [ 'image_id' => '14|full' ], 'text' => 'https://example.com/b.jpg' ],
+			],
+			'[fusion_builder_container][/fusion_builder_container]'
+		);
+		$this->assertSame( '[fusion_builder_container][fusion_builder_row][fusion_builder_column type="1_1"][fusion_imageframe image_id="14|full"]https://example.com/b.jpg[/fusion_imageframe][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
+	}
+
+	public function test_a_column_put_in_a_container_goes_into_its_only_row() {
+		$out = $this->apply( [ [ 'op' => 'insert_element', 'parent' => '0', 'type' => 'fusion_builder_column', 'attrs' => [ 'type' => '1_3' ] ] ] );
+		$this->assertStringEndsWith( '[/fusion_builder_column][fusion_builder_column type="1_3"][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]', $out );
 	}
 
 	public function test_remove_element() {

@@ -70,6 +70,11 @@ operation it returns 400 with the failing operation's index in
 }
 ```
 
+
+## Layout levels
+
+An element inserted one or two layout levels too high (content into a container or row, a column into a container) goes into the only row or column there, or into a new row and full-width column when there is none. Several rows or columns there is an error.
+
 ## Images
 
 `fusion_imageframe` keeps its image in `element_content` (setting type `upload`). `replace_text` on it only accepts an `http(s)` URL. Set `image_id` to `"<attachment id>|full"` so Avada Builder shows the picked media library image. AI requests that mention images carry `media`: up to 12 recent media library images (`id`, `url`, `title`).

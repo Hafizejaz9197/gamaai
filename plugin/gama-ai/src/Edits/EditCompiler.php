@@ -225,6 +225,7 @@ class EditCompiler {
 
 		$parent_id = isset( $op['parent'] ) ? (string) $op['parent'] : '';
 		$parent    = '' === $parent_id ? $this->root : $this->lookup( $parent_id, $ids );
+		$parent    = $this->layout_parent( $type, $parent );
 		$this->require_placement( $type, $parent );
 
 		$attrs = isset( $op['attrs'] ) ? $op['attrs'] : [];
@@ -261,6 +262,55 @@ class EditCompiler {
 			}
 			$this->refs[ $ref ] = $node;
 		}
+	}
+
+	/**
+	 * Where an element really goes when it is placed one or two layout
+	 * levels too high, such as an image put straight into a container or a
+	 * column into a container. Like Avada Builder, the missing row and
+	 * column are used when there is exactly one, and added (a full-width
+	 * column) when there is none. Several of them are a question of which
+	 * one, so that is an error instead of a guess.
+	 *
+	 * @param string $type   Element being inserted.
+	 * @param Node   $parent Parent asked for.
+	 * @return Node Parent to use.
+	 * @throws EditException When the right row or column is not clear.
+	 */
+	private function layout_parent( $type, Node $parent ) {
+		$allowed = isset( self::STRUCTURE[ $type ] ) ? self::STRUCTURE[ $type ] : self::CONTENT_PARENTS;
+		while ( $parent !== $this->root && ! in_array( $parent->name, $allowed, true ) && isset( self::SCAFFOLD[ $parent->name ] ) ) {
+			list( $layer, $attrs ) = self::SCAFFOLD[ $parent->name ];
+			if ( ! $this->known( $layer ) ) {
+				break;
+			}
+			$existing = array_values(
+				array_filter(
+					$parent->shortcode_children(),
+					function ( Node $child ) use ( $layer ) {
+						return $child->name === $layer;
+					}
+				)
+			);
+			if ( count( $existing ) > 1 ) {
+				$word = false !== strpos( $layer, 'column' ) ? 'columns' : 'rows';
+				throw new EditException( $type . ' must go in one of the ' . count( $existing ) . ' ' . $word . ' of this ' . str_replace( 'fusion_builder_', '', $parent->name ) . '; give that ' . substr( $word, 0, -1 ) . ' as the parent.' );
+			}
+			if ( $existing ) {
+				$parent = $existing[0];
+				continue;
+			}
+			$checked = [];
+			foreach ( $attrs as $key => $value ) {
+				$checked[ $key ] = $this->checked_attr( $layer, $key, $value );
+			}
+			$child            = Node::shortcode( $layer, '', $checked );
+			$child->raw_close = '[/' . $layer . ']';
+			$child->dirty     = true;
+			$this->place( $parent, $child, PHP_INT_MAX );
+			$parent = $child;
+		}
+		return $parent;
 	}
 
 	/**
